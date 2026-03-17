@@ -1,4 +1,4 @@
-# Entrouter-Universal
+# Entrouter-Universal v0.3
 
 > **What goes in, comes out identical.**
 
@@ -290,7 +290,19 @@ Format strings       ✅  %s%s%s%n%n%n
 Zero-width chars     ✅  ​‌‍
 ```
 
-**21 tests. Zero failures.**
+**22 tests. Zero failures.**
+
+---
+
+## v0.3 Improvements
+
+- `#[must_use]` on all constructors and pure functions - compiler warns if you ignore a return value
+- `#[non_exhaustive]` on `UniversalError` - new variants won't break downstream
+- `Clone` and `PartialEq` on all error and result types - testable in assertions
+- `Display` impls on `VerifyResult`, `ChainVerifyResult`, `StructVerifyResult`, `FieldVerifyResult`
+- New `SerializationError` variant - JSON failures no longer misreport as `MalformedEnvelope`
+- Guardian now reports decode failures instead of silently swallowing them
+- 16 MiB decompression size guard against gzip bombs
 
 ---
 
