@@ -3,197 +3,254 @@
 > **What goes in, comes out identical.**
 
 Every layer in your stack has its own opinion about escaping.  
-HTTP escapes it. JSON escapes it again. Redis adds its own twist. Postgres finishes the job.  
-By the time your data arrives, it's been mangled by five different layers that all thought they were being helpful.
+HTTP. JSON. Rust. Redis. Postgres. Each one mangling your data a little more.  
+By the time it arrives, it's unrecognisable.
 
 `entrouter-universal` solves this permanently.
 
-**Base64 at entry. Opaque string through every layer. Decode at destination. Verify.**
-
-No special characters. Nothing to escape. Nothing to double-escape. Every layer just moves a string it physically cannot touch.
-
----
-
-## The Problem
-
-```
-Original:   hello "world" it's \fine\
-After HTTP: hello \"world\" it\'s \\fine\\
-After JSON: hello \\"world\\" it\\'s \\\\fine\\\\
-After Redis: ...you get the idea
-```
-
-Senior devs have been chasing this bug for decades. The fix is one function call.
+**Base64 at entry. Opaque to every layer. SHA-256 fingerprint travels with it. Verify at exit.**
 
 ---
 
 ## Installation
 
-Add to your `Cargo.toml`:
-
 ```toml
 [dependencies]
-entrouter-universal = "0.1"
+entrouter-universal = "0.2"
+
+# Optional: compression support
+entrouter-universal = { version = "0.2", features = ["compression"] }
 ```
 
 ---
 
-## Three Tools
+## Five Tools
 
-### 1. Encode / Decode — The Core
+### 1. `Envelope` — Four Wrap Modes
 
-The simplest form. Encode at entry, decode at exit. Nothing in between can touch it.
-
+#### Standard
 ```rust
-use entrouter_universal::{encode_str, decode_str};
+let env = Envelope::wrap(r#"{"token":"abc\"def","user":"john's"}"#);
+// pass through HTTP → JSON → Redis → Postgres
+let original = env.unwrap_verified().unwrap(); // identical or Err
+```
 
-// Entry point — encode once
-let encoded = encode_str(r#"{"token":"abc\"def","user":"john's data"}"#);
+#### URL-Safe
+```rust
+// Use in URLs, query params, HTTP headers
+// Uses - and _ instead of + and /. No padding. Zero breakage.
+let env = Envelope::wrap_url_safe(data);
+assert!(env.d.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_'));
+let original = env.unwrap_verified().unwrap();
+```
 
-// Pass `encoded` through HTTP, JSON, Redis, Postgres — whatever you want
-// It's just a plain alphanumeric string. Nothing to escape.
+#### Compressed
+```rust
+// Large payloads — gzip first, then Base64
+// Smaller on the wire. Transparent to consumer.
+let env = Envelope::wrap_compressed(large_payload)?;
+let original = env.unwrap_verified().unwrap(); // auto-decompresses
+```
 
-// Exit point — decode once
-let original = decode_str(&encoded).unwrap();
-// Identical to what went in. Every time.
+#### TTL — Self-Expiring Data
+```rust
+// Race tokens, session data, anything time-sensitive
+let env = Envelope::wrap_with_ttl(data, 300); // expires in 5 minutes
+
+println!("{} secs remaining", env.ttl_remaining().unwrap());
+
+// After 5 minutes:
+env.unwrap_verified() // Err(Expired { expired_at: ..., now: ... })
 ```
 
 ---
 
-### 2. Envelope — Entry + Fingerprint + Exit in One
+### 2. `Chain` — Cryptographic Audit Trail
 
-Wraps your data with a SHA-256 fingerprint. If anything mutated it in transit, the exit point tells you immediately.
+Each link references the previous link's fingerprint. Tamper with any link — everything after it breaks. You know exactly where the chain was cut.
 
 ```rust
-use entrouter_universal::Envelope;
+let mut chain = Chain::new("race:listing_abc — OPENED");
+chain.append("user_john joined — token: 000001739850000001");
+chain.append("user_jane joined — token: 000001739850000002");
+chain.append("WINNER: user_john");
+chain.append("race:listing_abc — CLOSED");
 
-// ── Entry point ───────────────────────────────────────────
-let env = Envelope::wrap(r#"winner_token: abc"123"\n special chars"#);
+// Verify the entire chain
+let result = chain.verify();
+assert!(result.valid);
+println!("{}", chain.report());
+// ━━━━ Entrouter Universal Chain Report ━━━━
+// Links: 5 | Valid: true
+//   Link 1: ✅ | ts: 1739850000 | fp: a3f1b2c4d5e6f7...
+//   Link 2: ✅ | ts: 1739850001 | fp: 9f8e7d6c5b4a3...
+//   ...
 
-// Serialize to JSON — safe to store in Redis, Postgres, send over HTTP
-let json = env.to_json().unwrap();
-// {"d":"d2lubmVyX3Rva2VuOi...","f":"a3f1b2...","v":1}
+// Tamper with link 3 — links 4 and 5 break too
+chain.links[2].d = encode_str("TAMPERED");
+let result = chain.verify();
+assert_eq!(result.broken_at, Some(3));
 
-// Pass json through every layer in your stack...
-
-// ── Exit point ────────────────────────────────────────────
-let received = Envelope::from_json(&json).unwrap();
-let original = received.unwrap_verified().unwrap();
-// If this succeeds → data is identical to what went in
-// If this errors   → something touched it, and you know it
+// Store anywhere — Redis, Postgres, S3
+let json = chain.to_json().unwrap();
+let restored = Chain::from_json(&json).unwrap();
+assert!(restored.verify().valid);
 ```
 
 ---
 
-### 3. Guardian — Named Layer Checkpoints
+### 3. `UniversalStruct` — Per-Field Integrity
 
-Watches a value through your entire pipeline and tells you **exactly which layer** broke it.
+Wraps every field individually. If Redis mangles just one field, you know exactly which one. Not "something broke" — "`amount` was tampered with between Redis and Postgres."
 
 ```rust
-use entrouter_universal::Guardian;
+let wrapped = UniversalStruct::wrap_fields(&[
+    ("token",      "000001739850123456-000004521890000-a3f1b2-user_john"),
+    ("user_id",    "john's account \"special\""),
+    ("amount",     "299.99"),
+    ("listing_id", "listing:abc\\123"),
+]);
 
-let mut g = Guardian::new(r#"my "sensitive" token\value"#);
+// Verify all fields
+let result = wrapped.verify_all();
+assert!(result.all_intact);
 
-// Pass g.encoded() through your pipeline
-// At each layer, record a checkpoint with whatever the value looks like there
+// Get specific field
+let token = wrapped.get("token").unwrap();
 
-g.checkpoint("after_http",     &value_after_http);
-g.checkpoint("after_json",     &value_after_json);
-g.checkpoint("after_redis",    &value_after_redis);
-g.checkpoint("after_postgres", &value_after_postgres);
+// Get all as HashMap
+let map = wrapped.to_map().unwrap();
 
-// Find the exact layer that broke it
-if let Some(violation) = g.first_violation() {
-    println!("Broken at: {}", violation.layer);
+// Simulate financial data tampering
+wrapped.fields[2].d = encode_str("999999.99"); // mutate amount
+
+let result = wrapped.verify_all();
+assert!(!result.all_intact);
+assert!(result.violations.contains(&"amount".to_string()));
+// token ✅  user_id ✅  amount ❌  listing_id ✅
+
+println!("{}", wrapped.report());
+// ━━━━ Entrouter Universal Field Report ━━━━
+// All intact: false
+//   token:      ✅ — 000001739850123456...
+//   user_id:    ✅ — john's account "special"
+//   amount:     ❌ VIOLATED — —
+//   listing_id: ✅ — listing:abc\123
+```
+
+---
+
+### 4. `Guardian` — Named Layer Checkpoints
+
+Find the exact layer that broke your data.
+
+```rust
+let mut g = Guardian::new(data);
+let encoded = g.encoded().to_string(); // pass this through your pipeline
+
+g.checkpoint("http_ingress",    &value_at_http);
+g.checkpoint("json_parse",      &value_at_json);
+g.checkpoint("redis_write",     &value_at_redis);
+g.checkpoint("postgres_write",  &value_at_postgres);
+
+// Exact culprit
+if let Some(v) = g.first_violation() {
+    println!("Broken at: {}", v.layer); // "redis_write"
 }
 
-// Or print the full pipeline report
 println!("{}", g.report());
 // ━━━━ Entrouter Universal Pipeline Report ━━━━
-// Original fingerprint: a3f1b2c4...
-// Overall intact: false
-//
-//   Layer 1: after_http     — ✅
-//   Layer 2: after_json     — ✅
-//   Layer 3: after_redis    — ❌ VIOLATED
-//     Expected: a3f1b2c4...
-//     Got:      9f8e7d6c...
-//   Layer 4: after_postgres — ❌ VIOLATED
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-// Or assert in tests — panics with exactly which layer failed
-g.assert_intact();
+//   Layer 1: http_ingress   — ✅
+//   Layer 2: json_parse     — ✅
+//   Layer 3: redis_write    — ❌ VIOLATED
+//   Layer 4: postgres_write — ❌ VIOLATED
 ```
 
 ---
 
-## Why Base64
-
-Base64 output contains only `A-Z a-z 0-9 + / =`.
-
-None of these characters are special in:
-
-| Layer | Safe? |
-|---|---|
-| HTTP headers | ✅ |
-| JSON strings | ✅ |
-| Rust strings | ✅ |
-| Redis keys/values | ✅ |
-| Postgres text columns | ✅ |
-| URLs (with `+` → `-` variant) | ✅ |
-
-Every layer just sees a boring alphanumeric string. There is nothing to escape. The problem is solved at the encoding level, not the escaping level.
-
----
-
-## The Fingerprint
-
-Each `Envelope` carries a SHA-256 fingerprint of the original raw input alongside the encoded data.
-
-```
-Original input → SHA-256 → fingerprint (travels with data)
-Original input → Base64  → encoded    (travels with data)
-
-At exit:
-  decode(encoded) → SHA-256 → compare with fingerprint
-  Match   → data is intact
-  No match → something mutated it, and you know it
-```
-
-The fingerprint cannot be forged without knowing the original input. Any mutation — even a single character — produces a completely different SHA-256 hash.
-
----
-
-## Real World Example — Entrouter Token Pipeline
+### 5. Core Primitives
 
 ```rust
-use entrouter_universal::Envelope;
+use entrouter_universal::{encode_str, decode_str, fingerprint_str, verify};
 
-// Server generates a race winner token
-let winner_token = format!(
-    "{}-{}-{}-{}",
-    utc_ms, drift_us, random_hex, user_id
-);
-
-// Wrap it at the entry point
-let env = Envelope::wrap(&winner_token);
-
-// Store in Redis — just a JSON string, nothing special
-redis.set(&race_key, env.to_json()?).await?;
-
-// Read from Redis
-let stored = redis.get(&race_key).await?;
-let env = Envelope::from_json(&stored)?;
-
-// Write to Postgres — still just a JSON string
-db.execute(
-    "INSERT INTO race_results (token_envelope) VALUES ($1)",
-    &[&env.to_json()?]
-).await?;
-
-// Read from Postgres and verify at the final destination
-let row = db.query_one("SELECT token_envelope FROM race_results WHERE id = $1", &[&id]).await?;
-let env = Envelope::from_json(row.get("token_envelope"))?;
-let token = env.unwrap_verified()?;
-// token == winner_token, guaranteed, or it errors
+let encoded     = encode_str(data);      // Base64
+let decoded     = decode_str(&encoded)?; // back to string
+let fp          = fingerprint_str(data); // SHA-256 hex
+let result      = verify(&encoded, &fp)?; // decode + verify in one call
 ```
+
+---
+
+## Cross-Machine — Works Everywhere
+
+Both boxes just need the crate. Base64 and SHA-256 are universal standards — identical output on every OS, every architecture.
+
+```
+Windows PC                      Ubuntu VPS
+cargo add entrouter-universal   cargo add entrouter-universal
+
+Envelope::wrap(data)     →SSH→  Envelope::from_json(wire)
+                                .unwrap_verified() // ✅ identical
+```
+
+Data wrapped on your dev machine arrives verified on your VPS. Same crate. Same standard. Guaranteed.
+
+---
+
+## API Reference
+
+### `Envelope`
+| Method | Description |
+|---|---|
+| `Envelope::wrap(input)` | Standard Base64 wrap |
+| `Envelope::wrap_url_safe(input)` | URL-safe Base64 (- and _) |
+| `Envelope::wrap_compressed(input)` | Gzip then Base64 |
+| `Envelope::wrap_with_ttl(input, secs)` | Standard + expiry |
+| `env.unwrap_verified()` | Decode + verify (all modes) |
+| `env.unwrap_raw()` | Decode without verification |
+| `env.is_expired()` | Check TTL |
+| `env.ttl_remaining()` | Seconds until expiry |
+| `env.to_json()` / `Envelope::from_json()` | Serialise |
+
+### `Chain`
+| Method | Description |
+|---|---|
+| `Chain::new(data)` | Start a new chain |
+| `chain.append(data)` | Add a link referencing previous |
+| `chain.verify()` | Verify entire chain |
+| `chain.report()` | Human-readable report |
+| `chain.to_json()` / `Chain::from_json()` | Serialise |
+
+### `UniversalStruct`
+| Method | Description |
+|---|---|
+| `UniversalStruct::wrap_fields(&[("name", "value")])` | Wrap field pairs |
+| `struct.verify_all()` | Per-field verification |
+| `struct.get("field")` | Get verified field by name |
+| `struct.to_map()` | All fields as HashMap |
+| `struct.assert_intact()` | Panic with field names if violated |
+| `struct.report()` | Human-readable field report |
+
+### `Guardian`
+| Method | Description |
+|---|---|
+| `Guardian::new(input)` | Create at entry point |
+| `guardian.encoded()` | Get encoded string for pipeline |
+| `guardian.checkpoint(layer, current)` | Record named checkpoint |
+| `guardian.first_violation()` | First broken layer |
+| `guardian.is_intact()` | All checkpoints passed |
+| `guardian.assert_intact()` | Panic with layer name |
+| `guardian.report()` | Full pipeline report |
+
+---
+
+## License
+
+**AGPL-3.0-only** — Free for open-source.  
+Commercial license for closed-source / proprietary use.
+
+Contact **entropy-router@proton.me**
+
+---
+
+*Part of the Entrouter suite — [entrouter.com](https://entrouter.com)*
