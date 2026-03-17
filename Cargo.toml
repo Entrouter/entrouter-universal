@@ -1,0 +1,15 @@
+[package]
+name = "entrouter-universal"
+version = "0.1.0"
+edition = "2021"
+description = "Pipeline integrity guardian — what goes in, comes out identical."
+license = "Apache-2.0"
+authors = ["John K"]
+
+[dependencies]
+base64 = "0.22"
+sha2 = "0.10"
+hex = "0.4"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "1.0"
