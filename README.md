@@ -113,16 +113,20 @@ cargo add entrouter-universal
 
 ## CLI Commands
 
-Six commands. All pipe-friendly. All SSH-safe.
+Ten commands. All pipe-friendly. All shell-safe.
 
 | Command | What it does |
 |---|---|
 | `entrouter ssh <host>` | Pipe a command in, it runs on the remote machine. No escaping. |
-| `entrouter encode` | Stdin → base64 + SHA-256 fingerprint (JSON output) |
-| `entrouter decode` | JSON with encoded field → original data |
-| `entrouter verify` | JSON with encoded + fingerprint → INTACT or TAMPERED |
-| `entrouter raw-encode` | Stdin → raw base64 (no JSON wrapper) |
-| `entrouter raw-decode` | Base64 → original (no JSON wrapper) |
+| `entrouter docker <container>` | Pipe a command in, it runs inside the Docker container. |
+| `entrouter kube <pod> [-n ns]` | Pipe a command in, it runs inside the Kubernetes pod. |
+| `entrouter cron [schedule]` | Encode a command into a cron-safe line. No `%` breakage. |
+| `entrouter exec` | Decode base64 from stdin and execute it locally. |
+| `entrouter encode` | Stdin -> base64 + SHA-256 fingerprint (JSON output) |
+| `entrouter decode` | JSON with encoded field -> original data |
+| `entrouter verify` | JSON with encoded + fingerprint -> INTACT or TAMPERED |
+| `entrouter raw-encode` | Stdin -> raw base64 (no JSON wrapper) |
+| `entrouter raw-decode` | Base64 -> original (no JSON wrapper) |
 
 ### SSH - The Killer Feature
 
@@ -132,6 +136,60 @@ echo 'curl -s -X POST -H "Content-Type: application/json" -d {"key":"value"} htt
 ```
 
 No quoting gymnastics. No backslash hell. No "it works locally but breaks over SSH." Just pipe your command and go.
+
+### Docker - Same Pain, Same Fix
+
+```bash
+# Run ANY command inside a container. No docker exec escaping hell.
+echo 'nginx -t && nginx -s reload' | entrouter docker my-nginx
+
+# Complex JSON, special chars - doesn't matter
+echo 'curl -X POST -d {"config":"new_value"} http://localhost:8080/api' | entrouter docker my-app
+```
+
+Uses `base64 -d` on the container side - zero dependencies. Works with any image.
+
+### Kubernetes - The Worst Escaping Of All
+
+```bash
+# Run a command in a pod
+echo 'cat /etc/config/app.yaml' | entrouter kube my-pod
+
+# Specify namespace
+echo 'pg_dump -U postgres mydb > /tmp/backup.sql' | entrouter kube db-pod -n production
+```
+
+No more `kubectl exec my-pod -- sh -c "..."` with triple-escaped quotes.
+
+### Cron - Kill The % Problem
+
+Cron interprets `%` as a newline. Date formats, URL-encoded strings, modulo ops - all break silently.
+
+```bash
+# Generate a cron-safe line
+echo 'date +%Y-%m-%d | tee /var/log/daily.log' | entrouter cron '0 2 * * *'
+# 0 2 * * * echo 'ZGF0ZSArJVk...' | base64 -d | sh
+
+# Without schedule - just the encoded execution part
+echo 'backup.sh --format=%s' | entrouter cron
+# echo 'YmFja3VwLn...' | base64 -d | sh
+```
+
+Paste directly into crontab. The `%` signs are safely inside the base64.
+
+### Exec - Decode And Run Locally
+
+```bash
+# Store a command safely, run it later
+echo 'complex command with "quotes" and $variables' | entrouter raw-encode > saved.b64
+entrouter exec < saved.b64
+
+# Pipe chain
+echo 'echo hello world' | entrouter raw-encode | entrouter exec
+# hello world
+```
+
+Safe command storage in config files, env vars, databases - anywhere that mangles special characters.
 
 ### Encode / Decode / Verify
 
@@ -342,6 +400,14 @@ Zero-width chars     ✅  ​‌‍
 ---
 
 ## Changelog
+
+### v0.6 - Docker, Kubernetes, Cron, Exec
+- `entrouter docker <container>` - run commands inside Docker containers without escaping
+- `entrouter kube <pod> [-n ns]` - run commands inside Kubernetes pods without escaping
+- `entrouter cron [schedule]` - encode commands into cron-safe lines (no `%` breakage)
+- `entrouter exec` - decode base64 from stdin and execute locally
+- Zero dependencies on remote side - uses `base64 -d` for docker/kube/cron
+- 10 CLI commands total
 
 ### v0.5 - SSH Command
 - `entrouter ssh <host>` - type the command, it runs on the remote machine. No escaping.

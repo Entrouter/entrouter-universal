@@ -8,15 +8,21 @@ fn main() {
         eprintln!("entrouter-universal CLI");
         eprintln!();
         eprintln!("Usage:");
-        eprintln!("  entrouter encode       Read stdin, print base64 + fingerprint as JSON");
-        eprintln!("  entrouter decode        Read JSON from stdin, print original data");
-        eprintln!("  entrouter verify        Read JSON from stdin, verify integrity");
-        eprintln!("  entrouter raw-encode    Read stdin, print just the base64 (no JSON)");
-        eprintln!("  entrouter raw-decode    Read base64 from stdin, print original data");
-        eprintln!("  entrouter ssh <host>    Read a command from stdin, execute it on remote host");
+        eprintln!("  entrouter encode              Read stdin, print base64 + fingerprint as JSON");
+        eprintln!("  entrouter decode               Read JSON from stdin, print original data");
+        eprintln!("  entrouter verify               Read JSON from stdin, verify integrity");
+        eprintln!("  entrouter raw-encode           Read stdin, print just the base64 (no JSON)");
+        eprintln!("  entrouter raw-decode           Read base64 from stdin, print original data");
+        eprintln!("  entrouter ssh <host>           Encode + execute command on remote host via SSH");
+        eprintln!("  entrouter docker <container>   Encode + execute command inside a Docker container");
+        eprintln!("  entrouter kube <pod> [-n ns]   Encode + execute command inside a Kubernetes pod");
+        eprintln!("  entrouter cron [schedule]      Encode command into a cron-safe line");
+        eprintln!("  entrouter exec                 Decode base64 from stdin and execute locally");
         eprintln!();
         eprintln!("Pipe-friendly: echo 'hello' | entrouter encode | entrouter verify");
         eprintln!("SSH example:   echo 'curl ...' | entrouter ssh root@your-vps");
+        eprintln!("Docker:        echo 'nginx -t' | entrouter docker my-nginx");
+        eprintln!("Cron:          echo 'backup.sh' | entrouter cron '0 2 * * *'");
         std::process::exit(1);
     }
 
@@ -32,6 +38,42 @@ fn main() {
             let input = read_stdin();
             cmd_ssh(host, &input);
         }
+        "docker" => {
+            if args.len() < 3 {
+                eprintln!("Usage: entrouter docker <container>");
+                eprintln!("  Reads the command to run from stdin.");
+                eprintln!("  Example: echo 'nginx -t' | entrouter docker my-nginx");
+                std::process::exit(1);
+            }
+            let container = &args[2];
+            let input = read_stdin();
+            cmd_docker(container, &input);
+        }
+        "kube" => {
+            if args.len() < 3 {
+                eprintln!("Usage: entrouter kube <pod> [-n <namespace>]");
+                eprintln!("  Reads the command to run from stdin.");
+                eprintln!("  Example: echo 'cat /etc/config' | entrouter kube my-pod -n production");
+                std::process::exit(1);
+            }
+            let pod = &args[2];
+            let namespace = if args.len() >= 5 && args[3] == "-n" {
+                Some(args[4].as_str())
+            } else {
+                None
+            };
+            let input = read_stdin();
+            cmd_kube(pod, namespace, &input);
+        }
+        "cron" => {
+            let schedule = if args.len() >= 3 {
+                Some(args[2..].join(" "))
+            } else {
+                None
+            };
+            let input = read_stdin();
+            cmd_cron(schedule.as_deref(), &input);
+        }
         cmd => {
             let input = read_stdin();
             match cmd {
@@ -40,9 +82,10 @@ fn main() {
                 "verify" => cmd_verify(&input),
                 "raw-encode" => cmd_raw_encode(&input),
                 "raw-decode" => cmd_raw_decode(&input),
+                "exec" => cmd_exec(&input),
                 other => {
                     eprintln!("Unknown command: {other}");
-                    eprintln!("Try: encode, decode, verify, raw-encode, raw-decode, ssh");
+                    eprintln!("Try: encode, decode, verify, raw-encode, raw-decode, ssh, docker, kube, cron, exec");
                     std::process::exit(1);
                 }
             }
@@ -177,5 +220,105 @@ fn cmd_ssh(host: &str, command: &str) {
 
     if !status.success() {
         std::process::exit(status.code().unwrap_or(1));
+    }
+}
+
+/// docker: encode a command locally, decode and execute inside a container
+fn cmd_docker(container: &str, command: &str) {
+    let encoded = entrouter_universal::encode_str(command);
+
+    // base64 -d is available in virtually every container image - zero dependencies
+    let remote_cmd = format!("echo '{}' | base64 -d | sh", encoded);
+
+    let status = Command::new("docker")
+        .args(["exec", container, "sh", "-c", &remote_cmd])
+        .stdin(std::process::Stdio::inherit())
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
+        .status()
+        .unwrap_or_else(|e| {
+            eprintln!("Failed to run docker: {e}");
+            std::process::exit(1);
+        });
+
+    if !status.success() {
+        std::process::exit(status.code().unwrap_or(1));
+    }
+}
+
+/// kube: encode a command locally, decode and execute inside a Kubernetes pod
+fn cmd_kube(pod: &str, namespace: Option<&str>, command: &str) {
+    let encoded = entrouter_universal::encode_str(command);
+
+    let remote_cmd = format!("echo '{}' | base64 -d | sh", encoded);
+
+    let mut cmd = Command::new("kubectl");
+    cmd.arg("exec");
+    if let Some(ns) = namespace {
+        cmd.args(["-n", ns]);
+    }
+    cmd.args([pod, "--", "sh", "-c", &remote_cmd]);
+    cmd.stdin(std::process::Stdio::inherit())
+       .stdout(std::process::Stdio::inherit())
+       .stderr(std::process::Stdio::inherit());
+
+    let status = cmd.status().unwrap_or_else(|e| {
+        eprintln!("Failed to run kubectl: {e}");
+        std::process::exit(1);
+    });
+
+    if !status.success() {
+        std::process::exit(status.code().unwrap_or(1));
+    }
+}
+
+/// cron: encode a command into a cron-safe line (no % or special chars to break crontab)
+fn cmd_cron(schedule: Option<&str>, command: &str) {
+    let encoded = entrouter_universal::encode_str(command);
+    let execution = format!("echo '{}' | base64 -d | sh", encoded);
+
+    match schedule {
+        Some(sched) => println!("{} {}", sched, execution),
+        None => println!("{}", execution),
+    }
+}
+
+/// exec: decode base64 from stdin and execute it locally
+fn cmd_exec(input: &str) {
+    match entrouter_universal::decode(input) {
+        Ok(bytes) => {
+            let command = String::from_utf8_lossy(&bytes);
+            let status = if cfg!(windows) {
+                Command::new("cmd")
+                    .args(["/C", &command])
+                    .stdin(std::process::Stdio::inherit())
+                    .stdout(std::process::Stdio::inherit())
+                    .stderr(std::process::Stdio::inherit())
+                    .status()
+            } else {
+                Command::new("sh")
+                    .args(["-c", &command])
+                    .stdin(std::process::Stdio::inherit())
+                    .stdout(std::process::Stdio::inherit())
+                    .stderr(std::process::Stdio::inherit())
+                    .status()
+            };
+
+            match status {
+                Ok(s) => {
+                    if !s.success() {
+                        std::process::exit(s.code().unwrap_or(1));
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Failed to execute: {e}");
+                    std::process::exit(1);
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!("Decode failed: {e}");
+            std::process::exit(1);
+        }
     }
 }
