@@ -60,7 +60,7 @@ pub struct UniversalStruct {
     pub fields: Vec<WrappedField>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct FieldVerifyResult {
     pub name:    String,
     pub intact:  bool,
@@ -68,15 +68,37 @@ pub struct FieldVerifyResult {
     pub error:   Option<String>,
 }
 
-#[derive(Debug, Clone)]
+impl std::fmt::Display for FieldVerifyResult {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.intact {
+            write!(f, "{}: Intact", self.name)
+        } else {
+            write!(f, "{}: Violated ({})", self.name,
+                self.error.as_deref().unwrap_or("unknown"))
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct StructVerifyResult {
     pub all_intact:  bool,
     pub fields:      Vec<FieldVerifyResult>,
     pub violations:  Vec<String>,
 }
 
+impl std::fmt::Display for StructVerifyResult {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.all_intact {
+            write!(f, "All {} fields intact", self.fields.len())
+        } else {
+            write!(f, "Violations in: {}", self.violations.join(", "))
+        }
+    }
+}
+
 impl UniversalStruct {
     /// Wrap a list of (name, value) field pairs
+    #[must_use]
     pub fn wrap_fields(fields: &[(&str, &str)]) -> Self {
         Self {
             fields: fields.iter()
@@ -168,11 +190,11 @@ impl UniversalStruct {
 
     pub fn to_json(&self) -> Result<String, UniversalError> {
         serde_json::to_string(self)
-            .map_err(|e| UniversalError::MalformedEnvelope(e.to_string()))
+            .map_err(|e| UniversalError::SerializationError(e.to_string()))
     }
 
     pub fn from_json(s: &str) -> Result<Self, UniversalError> {
         serde_json::from_str(s)
-            .map_err(|e| UniversalError::MalformedEnvelope(e.to_string()))
+            .map_err(|e| UniversalError::SerializationError(e.to_string()))
     }
 }

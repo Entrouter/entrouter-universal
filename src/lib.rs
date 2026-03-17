@@ -1,5 +1,5 @@
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-//  Entrouter Universal v0.2
+//  Entrouter Universal v0.3
 //
 //  Pipeline integrity guardian.
 //  What goes in, comes out identical.
@@ -26,7 +26,8 @@ pub use universal_struct::UniversalStruct;
 
 // ── Errors ────────────────────────────────────────────────
 
-#[derive(Debug, Error)]
+#[derive(Debug, Clone, PartialEq, Error)]
+#[non_exhaustive]
 pub enum UniversalError {
     #[error("Integrity violation: data was mutated in transit. Expected {expected}, got {actual}")]
     IntegrityViolation { expected: String, actual: String },
@@ -42,10 +43,14 @@ pub enum UniversalError {
 
     #[error("Compress error: {0}")]
     CompressError(String),
+
+    #[error("Serialization error: {0}")]
+    SerializationError(String),
 }
 
 // ── Core primitives ───────────────────────────────────────
 
+#[must_use]
 pub fn encode(input: &[u8]) -> String {
     STANDARD.encode(input)
 }
@@ -55,6 +60,7 @@ pub fn decode(input: &str) -> Result<Vec<u8>, UniversalError> {
         .map_err(|e| UniversalError::DecodeError(e.to_string()))
 }
 
+#[must_use]
 pub fn encode_str(input: &str) -> String {
     encode(input.as_bytes())
 }
@@ -65,12 +71,14 @@ pub fn decode_str(input: &str) -> Result<String, UniversalError> {
         .map_err(|e| UniversalError::DecodeError(e.to_string()))
 }
 
+#[must_use]
 pub fn fingerprint(input: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(input);
     hex::encode(hasher.finalize())
 }
 
+#[must_use]
 pub fn fingerprint_str(input: &str) -> String {
     fingerprint(input.as_bytes())
 }

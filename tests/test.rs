@@ -1,5 +1,5 @@
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-//  Entrouter Universal v0.2 - Full Integration Test Suite
+//  Entrouter Universal v0.3 - Full Integration Test Suite
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 use entrouter_universal::{
@@ -245,4 +245,52 @@ fn suite_cross_machine() {
     let vps_chain = Chain::from_json(&wire_chain).unwrap();
     assert!(vps_chain.verify().valid);
     println!("✅ Cross-machine chain: audit trail verified on VPS");
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  SUITE 6 - Low-Level Primitives (encode_str, decode_str, fingerprint_str)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+#[test]
+fn suite_primitives() {
+    println!("\n━━━━ SUITE 6: Low-Level Primitives ━━━━\n");
+
+    // Basic round-trip
+    let decoded = decode_str(&encode_str("some data")).unwrap();
+    assert_eq!(decoded, "some data");
+    println!("✅ encode_str/decode_str round-trip: basic string survived");
+
+    // Fingerprint is always 64 hex chars (SHA-256)
+    let fp = fingerprint_str("some data");
+    assert_eq!(fp.len(), 64);
+    assert!(fp.chars().all(|c| c.is_ascii_hexdigit()));
+    println!("✅ fingerprint_str: 64 hex chars - {}", fp);
+
+    // Same input = same fingerprint (deterministic)
+    assert_eq!(fingerprint_str("hello"), fingerprint_str("hello"));
+    println!("✅ fingerprint_str: deterministic - same input = same hash");
+
+    // Different input = different fingerprint
+    assert_ne!(fingerprint_str("hello"), fingerprint_str("world"));
+    println!("✅ fingerprint_str: different input = different hash");
+
+    // Nightmare payload round-trip through primitives
+    let encoded = encode_str(NIGHTMARE);
+    let decoded_nightmare = decode_str(&encoded).unwrap();
+    assert_eq!(decoded_nightmare, NIGHTMARE);
+    println!("✅ encode_str/decode_str: nightmare payload survived");
+
+    // Fingerprint of nightmare is stable
+    let fp1 = fingerprint_str(NIGHTMARE);
+    let fp2 = fingerprint_str(NIGHTMARE);
+    assert_eq!(fp1, fp2);
+    assert_eq!(fp1.len(), 64);
+    println!("✅ fingerprint_str: nightmare fingerprint stable - {}", &fp1[..16]);
+
+    // Empty string
+    let empty_decoded = decode_str(&encode_str("")).unwrap();
+    assert_eq!(empty_decoded, "");
+    let empty_fp = fingerprint_str("");
+    assert_eq!(empty_fp.len(), 64);
+    println!("✅ Primitives handle empty string");
 }

@@ -1,5 +1,5 @@
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-//  Entrouter Universal - Guardian v2
+//  Entrouter Universal - Guardian v3
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 use crate::{encode_str, decode_str, fingerprint_str};
@@ -10,9 +10,10 @@ pub struct LayerRecord {
     pub encoded:     String,
     pub fingerprint: String,
     pub intact:      bool,
+    pub error:       Option<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Guardian {
     original_fingerprint: String,
     encoded:              String,
@@ -20,6 +21,7 @@ pub struct Guardian {
 }
 
 impl Guardian {
+    #[must_use]
     pub fn new(input: &str) -> Self {
         Self {
             original_fingerprint: fingerprint_str(input),
@@ -29,15 +31,28 @@ impl Guardian {
     }
 
     pub fn checkpoint(&mut self, layer_name: &str, current_encoded: &str) {
-        let decoded = decode_str(current_encoded).unwrap_or_default();
-        let fp      = fingerprint_str(&decoded);
-        let intact  = fp == self.original_fingerprint;
-        self.layers.push(LayerRecord {
-            layer:       layer_name.to_string(),
-            encoded:     current_encoded.to_string(),
-            fingerprint: fp,
-            intact,
-        });
+        match decode_str(current_encoded) {
+            Ok(decoded) => {
+                let fp = fingerprint_str(&decoded);
+                let intact = fp == self.original_fingerprint;
+                self.layers.push(LayerRecord {
+                    layer:       layer_name.to_string(),
+                    encoded:     current_encoded.to_string(),
+                    fingerprint: fp,
+                    intact,
+                    error:       None,
+                });
+            }
+            Err(e) => {
+                self.layers.push(LayerRecord {
+                    layer:       layer_name.to_string(),
+                    encoded:     current_encoded.to_string(),
+                    fingerprint: String::new(),
+                    intact:      false,
+                    error:       Some(e.to_string()),
+                });
+            }
+        }
     }
 
     pub fn encoded(&self) -> &str {

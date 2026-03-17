@@ -1,5 +1,5 @@
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-//  Entrouter Universal - Envelope v2
+//  Entrouter Universal - Envelope v3
 //
 //  Four wrap modes:
 //  1. wrap()             - standard Base64
@@ -49,26 +49,28 @@ impl Envelope {
     // ── Constructors ──────────────────────────────────────
 
     /// Standard Base64 wrap.
+    #[must_use]
     pub fn wrap(input: &str) -> Self {
         Self {
             d: STANDARD.encode(input.as_bytes()),
             f: fingerprint_str(input),
             m: EnvelopeMode::Standard,
             e: None,
-            v: 2,
+            v: 3,
         }
     }
 
     /// URL-safe Base64 wrap.
     /// Use when passing through URLs, query params, or HTTP headers.
     /// Uses `-` and `_` instead of `+` and `/`. No padding.
+    #[must_use]
     pub fn wrap_url_safe(input: &str) -> Self {
         Self {
             d: URL_SAFE_NO_PAD.encode(input.as_bytes()),
             f: fingerprint_str(input),
             m: EnvelopeMode::UrlSafe,
             e: None,
-            v: 2,
+            v: 3,
         }
     }
 
@@ -83,12 +85,13 @@ impl Envelope {
             f: fingerprint_str(input),
             m: EnvelopeMode::Compressed,
             e: None,
-            v: 2,
+            v: 3,
         })
     }
 
     /// TTL wrap - standard Base64 with an expiry time.
     /// unwrap_verified() returns Err if the envelope has expired.
+    #[must_use]
     pub fn wrap_with_ttl(input: &str, ttl_secs: u64) -> Self {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -99,7 +102,7 @@ impl Envelope {
             f: fingerprint_str(input),
             m: EnvelopeMode::Ttl,
             e: Some(now + ttl_secs),
-            v: 2,
+            v: 3,
         }
     }
 
@@ -228,11 +231,11 @@ impl Envelope {
 
     pub fn to_json(&self) -> Result<String, UniversalError> {
         serde_json::to_string(self)
-            .map_err(|e| UniversalError::MalformedEnvelope(e.to_string()))
+            .map_err(|e| UniversalError::SerializationError(e.to_string()))
     }
 
     pub fn from_json(s: &str) -> Result<Self, UniversalError> {
         serde_json::from_str(s)
-            .map_err(|e| UniversalError::MalformedEnvelope(e.to_string()))
+            .map_err(|e| UniversalError::SerializationError(e.to_string()))
     }
 }

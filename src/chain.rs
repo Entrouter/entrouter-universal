@@ -54,12 +54,25 @@ impl ChainLink {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ChainVerifyResult {
     pub valid:          bool,
     pub total_links:    usize,
     pub broken_at:      Option<usize>,
     pub broken_reason:  Option<String>,
+}
+
+impl std::fmt::Display for ChainVerifyResult {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.valid {
+            write!(f, "Valid chain ({} links)", self.total_links)
+        } else {
+            write!(f, "Broken at link {} of {}: {}",
+                self.broken_at.unwrap_or(0),
+                self.total_links,
+                self.broken_reason.as_deref().unwrap_or("unknown"))
+        }
+    }
 }
 
 /// A cryptographic chain of data.
@@ -71,6 +84,7 @@ pub struct Chain {
 
 impl Chain {
     /// Start a new chain with a genesis link
+    #[must_use]
     pub fn new(data: &str) -> Self {
         let ts = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -173,12 +187,12 @@ impl Chain {
     /// Serialize to JSON - safe to store in Redis, Postgres, send anywhere
     pub fn to_json(&self) -> Result<String, UniversalError> {
         serde_json::to_string(self)
-            .map_err(|e| UniversalError::MalformedEnvelope(e.to_string()))
+            .map_err(|e| UniversalError::SerializationError(e.to_string()))
     }
 
     pub fn from_json(s: &str) -> Result<Self, UniversalError> {
         serde_json::from_str(s)
-            .map_err(|e| UniversalError::MalformedEnvelope(e.to_string()))
+            .map_err(|e| UniversalError::SerializationError(e.to_string()))
     }
 
     /// Print a chain report
