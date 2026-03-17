@@ -1,4 +1,9 @@
-# Entrouter-Universal v0.3
+# Entrouter-Universal
+
+[![Crates.io](https://img.shields.io/crates/v/entrouter-universal)](https://crates.io/crates/entrouter-universal)
+[![License](https://img.shields.io/crates/l/entrouter-universal)](https://github.com/joarkee-debug/Entrouter-Universal/blob/main/LICENSE)
+[![Rust](https://img.shields.io/badge/rust-1.63%2B-orange)](https://www.rust-lang.org)
+[![docs.rs](https://img.shields.io/docsrs/entrouter-universal)](https://docs.rs/entrouter-universal)
 
 > **What goes in, comes out identical.**
 
