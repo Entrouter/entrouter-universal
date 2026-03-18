@@ -1,0 +1,9 @@
+{
+    "servers": {
+        "entrouter": {
+            "type": "stdio",
+            "command": "entrouter",
+            "args": ["mcp"]
+        }
+    }
+}

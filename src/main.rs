@@ -1,6 +1,8 @@
 use std::io::{self, Read};
 use std::process::Command;
 
+mod mcp;
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
 
@@ -24,6 +26,9 @@ fn main() {
         );
         eprintln!("  entrouter cron [schedule]      Encode command into a cron-safe line");
         eprintln!("  entrouter exec                 Decode base64 from stdin and execute locally");
+        eprintln!(
+            "  entrouter mcp                  Start MCP server for VS Code Copilot integration"
+        );
         eprintln!();
         eprintln!("Pipe-friendly: echo 'hello' | entrouter encode | entrouter verify");
         eprintln!("SSH example:   echo 'curl ...' | entrouter ssh root@your-vps");
@@ -33,6 +38,7 @@ fn main() {
     }
 
     match args[1].as_str() {
+        "mcp" => mcp::run(),
         "ssh" => {
             if args.len() < 3 {
                 eprintln!("Usage: entrouter ssh <user@host>");
