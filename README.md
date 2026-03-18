@@ -113,11 +113,12 @@ cargo add entrouter-universal
 
 ## CLI Commands
 
-Ten commands. All pipe-friendly. All shell-safe.
+Eleven commands. All pipe-friendly. All shell-safe.
 
 | Command | What it does |
 |---|---|
 | `entrouter ssh <host>` | Pipe a command in, it runs on the remote machine. No escaping. |
+| `entrouter multi-ssh <h1,h2,...>` | Same thing, but fan-out to multiple hosts in parallel. |
 | `entrouter docker <container>` | Pipe a command in, it runs inside the Docker container. |
 | `entrouter kube <pod> [-n ns]` | Pipe a command in, it runs inside the Kubernetes pod. |
 | `entrouter cron [schedule]` | Encode a command into a cron-safe line. No `%` breakage. |
@@ -133,7 +134,7 @@ Ten commands. All pipe-friendly. All shell-safe.
 
 ## MCP Server - AI Agent Integration
 
-Entrouter ships with a built-in [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) server. This lets AI agents like GitHub Copilot, Claude, or any MCP-compatible client use entrouter's tools directly — encoding, decoding, fingerprinting, integrity checks, and **running commands on remote servers via SSH** without any shell escaping issues.
+Entrouter ships with a built-in [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) server with **21 tools**. This lets AI agents like GitHub Copilot, Claude, or any MCP-compatible client use entrouter's tools directly — encoding, decoding, fingerprinting, integrity checks, HMAC-signed envelopes, cryptographic audit chains, and **running commands on remote servers, Docker containers, Kubernetes pods, or multiple hosts in parallel** without any shell escaping issues.
 
 ### Setup (2 minutes)
 
@@ -194,6 +195,8 @@ That's it. Restart VS Code and the tools are available to your AI agent.
 
 ### Available MCP Tools
 
+**Core (encoding & integrity)**
+
 | Tool | What it does |
 |---|---|
 | `entrouter_encode` | Encode text → base64 + SHA-256 fingerprint (JSON output) |
@@ -202,7 +205,34 @@ That's it. Restart VS Code and the tools are available to your AI agent.
 | `entrouter_raw_encode` | Encode text → plain base64 (no wrapper) |
 | `entrouter_raw_decode` | Decode plain base64 → original text |
 | `entrouter_fingerprint` | Compute SHA-256 fingerprint of any text |
-| `entrouter_ssh` | **Run any command on a remote server via SSH** — no escaping needed |
+
+**Envelopes**
+
+| Tool | What it does |
+|---|---|
+| `entrouter_envelope_wrap` | Wrap data in an envelope (standard, url-safe, compressed, or TTL mode) |
+| `entrouter_envelope_unwrap` | Unwrap and verify an envelope — checks integrity + expiry |
+| `entrouter_signed_wrap` | Wrap data with HMAC-SHA256 authentication — proves integrity AND origin |
+| `entrouter_signed_unwrap` | Unwrap a signed envelope — verifies HMAC signature + integrity |
+
+**Chains (cryptographic audit trails)**
+
+| Tool | What it does |
+|---|---|
+| `entrouter_chain_new` | Create a new chain with a genesis link |
+| `entrouter_chain_append` | Append a link to an existing chain |
+| `entrouter_chain_verify` | Verify the entire chain — find exactly where it broke |
+| `entrouter_chain_diff` | Compare two chains — find where they diverge |
+| `entrouter_chain_merge` | Merge two chains (one must be a prefix of the other) |
+
+**Remote execution**
+
+| Tool | What it does |
+|---|---|
+| `entrouter_ssh` | Run any command on a remote server via SSH — no escaping needed |
+| `entrouter_multi_ssh` | Run a command on multiple hosts in parallel — collect all results |
+| `entrouter_docker` | Run a command inside a Docker container — no `docker exec` escaping |
+| `entrouter_kube` | Run a command inside a Kubernetes pod — no `kubectl exec` escaping |
 
 ### SSH Tool Requirements
 
@@ -218,6 +248,20 @@ Once set up, your AI agent can do things like:
 - Run database queries, deploy code, debug production — anything you'd type in a terminal
 
 All commands are base64-encoded locally, sent over SSH, decoded on the remote, and executed. No escaping. 30-second timeout prevents hangs.
+
+---
+
+### Multi-SSH - Fan-Out To N Hosts
+
+```bash
+# Run a command on multiple servers at once. Results come back labeled.
+echo 'uptime' | entrouter multi-ssh root@server1,root@server2,root@server3
+
+# Health check all your VPS instances
+echo 'curl -s http://localhost:3000/health' | entrouter multi-ssh root@vps1,root@vps2
+```
+
+Same encoding, same zero-escaping — just comma-separate the hosts. Results return per-host.
 
 ---
 
@@ -317,9 +361,9 @@ echo '{"key":"value"}' | entrouter raw-encode | ssh root@your-vps "entrouter raw
 
 ---
 
-## The Library - Five Tools
+## The Library - Six Tools
 
-Entrouter isn't just a CLI. It's a Rust crate with five integrity tools for your backend.
+Entrouter isn't just a CLI. It's a Rust crate with six integrity tools for your backend.
 
 ```rust
 use entrouter_universal::*;
@@ -352,6 +396,28 @@ db.execute("INSERT INTO t (envelope) VALUES ($1)", &[&env.to_json()?]).await?;  
 Response::json(env)                                                               // HTTP (serde-compatible)
 ```
 
+### 1b. Signed Envelope - HMAC Authentication
+
+Like Envelope, but with HMAC-SHA256 authentication. Proves both **integrity** (SHA-256 fingerprint) AND **origin** (only someone with the key could produce the signature).
+
+```rust
+use entrouter_universal::SignedEnvelope;
+
+// Sign with a secret key - four modes just like Envelope
+let env = SignedEnvelope::wrap("secret data", "my-secret-key");
+let env = SignedEnvelope::wrap_url_safe("secret", "key");
+let env = SignedEnvelope::wrap_compressed("large payload", "key")?;
+let env = SignedEnvelope::wrap_with_ttl("temporary", "key", 300); // 5 min TTL
+
+// Unwrap - verifies HMAC first, then integrity, then TTL
+let original = env.unwrap_verified("my-secret-key")?;
+
+// Wrong key? Rejected before decoding even starts.
+assert!(env.unwrap_verified("wrong-key").is_err());
+```
+
+Use cases: API tokens, inter-service messages, anything where you need to prove **who** sent it, not just that it arrived intact.
+
 ---
 
 ### 2. Chain - Cryptographic Audit Trail
@@ -377,6 +443,17 @@ Links: 5 | Valid: false
   Link 3: ❌ VIOLATED          ← tampered here
   Link 4: ❌ VIOLATED          ← cascade
   Link 5: ❌ VIOLATED          ← cascade
+```
+
+**Diff & Merge** — compare two chains, find where they diverge, merge if compatible:
+
+```rust
+let diff = Chain::diff(&chain_a, &chain_b);
+// ChainDiff { common_length: 3, a_extra: 2, b_extra: 1, diverges_at: Some(4) }
+
+// Merge two chains (one must be a prefix of the other)
+let merged = Chain::merge(&chain_a, &chain_b)?; // returns the longer chain
+// If they diverge → Err(ChainMergeConflict { diverges_at: 4 })
 ```
 
 ### 3. UniversalStruct - Per-Field Integrity
@@ -430,7 +507,13 @@ g.checkpoint("postgres_write",  &value_at_postgres);
 
 ---
 
-### 5. Core Primitives
+### 5. Signed Envelope (HMAC-SHA256)
+
+See [1b. Signed Envelope](#1b-signed-envelope---hmac-authentication) above.
+
+---
+
+### 6. Core Primitives
 
 ```rust
 use entrouter_universal::{encode_str, decode_str, fingerprint_str, verify};
@@ -488,11 +571,21 @@ Format strings       ✅  %s%s%s%n%n%n
 Zero-width chars     ✅  ​‌‍
 ```
 
-**28 tests. Zero failures.**
+**31 tests. Zero failures.**
 
 ---
 
 ## Changelog
+
+### v0.8 - Signed Envelopes, Chain Diff/Merge, Multi-Host & Container Execution
+- `SignedEnvelope` — HMAC-SHA256 authenticated envelopes (all 4 modes: standard, url-safe, compressed, TTL)
+- `Chain::diff()` / `Chain::merge()` — compare and merge cryptographic audit chains
+- `entrouter multi-ssh <h1,h2,...>` — fan-out a command to multiple hosts in parallel (CLI + MCP)
+- 14 new MCP tools (21 total): envelope wrap/unwrap, signed wrap/unwrap, chain new/append/verify/diff/merge, docker, kube, multi-ssh
+- MCP `entrouter_docker` — run commands inside Docker containers via AI agent
+- MCP `entrouter_kube` — run commands inside Kubernetes pods via AI agent
+- 31 tests passing. New test suites for signed envelopes and chain diff/merge.
+- `hmac` 0.12 dependency added
 
 ### v0.7 - MCP Server (AI Agent Integration)
 - `entrouter mcp` - built-in MCP server for VS Code Copilot, Claude, Cursor, and any MCP-compatible client
@@ -508,7 +601,7 @@ Zero-width chars     ✅  ​‌‍
 - `entrouter cron [schedule]` - encode commands into cron-safe lines (no `%` breakage)
 - `entrouter exec` - decode base64 from stdin and execute locally
 - Zero dependencies on remote side - uses `base64 -d` for docker/kube/cron
-- 10 CLI commands total
+- 11 CLI commands total
 
 ### v0.5 - SSH Command
 - `entrouter ssh <host>` - type the command, it runs on the remote machine. No escaping.

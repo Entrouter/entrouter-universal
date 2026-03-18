@@ -28,6 +28,7 @@ use thiserror::Error;
 pub mod chain;
 pub mod envelope;
 pub mod guardian;
+pub mod signed_envelope;
 pub mod universal_struct;
 pub mod verify;
 
@@ -35,8 +36,10 @@ pub mod verify;
 pub mod compress;
 
 pub use chain::Chain;
+pub use chain::ChainDiff;
 pub use envelope::Envelope;
 pub use guardian::Guardian;
+pub use signed_envelope::SignedEnvelope;
 pub use universal_struct::UniversalStruct;
 pub use verify::VerifyResult;
 
@@ -63,6 +66,9 @@ pub enum UniversalError {
 
     #[error("Serialization error: {0}")]
     SerializationError(String),
+
+    #[error("Chain merge conflict: chains diverge at link {diverges_at}")]
+    ChainMergeConflict { diverges_at: usize },
 }
 
 // ── Core primitives ───────────────────────────────────────

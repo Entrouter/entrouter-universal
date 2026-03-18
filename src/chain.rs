@@ -240,4 +240,60 @@ impl Chain {
         out.push_str("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
         out
     }
+
+    /// Compare two chains and find where they diverge.
+    pub fn diff(a: &Chain, b: &Chain) -> ChainDiff {
+        let min_len = a.links.len().min(b.links.len());
+        let mut common_length = 0;
+
+        for i in 0..min_len {
+            if a.links[i].f == b.links[i].f {
+                common_length += 1;
+            } else {
+                return ChainDiff {
+                    common_length,
+                    a_extra: a.links.len() - common_length,
+                    b_extra: b.links.len() - common_length,
+                    diverges_at: Some(i + 1), // 1-based
+                };
+            }
+        }
+
+        ChainDiff {
+            common_length,
+            a_extra: a.links.len() - common_length,
+            b_extra: b.links.len() - common_length,
+            diverges_at: None, // one is a prefix of the other (or they're identical)
+        }
+    }
+
+    /// Merge two chains. One must be a prefix of the other.
+    /// Returns the longer chain. If they diverge, returns an error.
+    pub fn merge(a: &Chain, b: &Chain) -> Result<Chain, UniversalError> {
+        let diff = Chain::diff(a, b);
+        if let Some(pos) = diff.diverges_at {
+            return Err(UniversalError::ChainMergeConflict {
+                diverges_at: pos,
+            });
+        }
+        // One is a prefix — return the longer one
+        if a.links.len() >= b.links.len() {
+            Ok(a.clone())
+        } else {
+            Ok(b.clone())
+        }
+    }
+}
+
+/// The result of comparing two chains with [`Chain::diff`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChainDiff {
+    /// How many links match from the start.
+    pub common_length: usize,
+    /// Links only in chain A (after the common prefix).
+    pub a_extra: usize,
+    /// Links only in chain B (after the common prefix).
+    pub b_extra: usize,
+    /// 1-based index where they diverge. `None` means one is a prefix of the other.
+    pub diverges_at: Option<usize>,
 }

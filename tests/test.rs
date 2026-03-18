@@ -3,7 +3,8 @@
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 use entrouter_universal::{
-    decode_str, encode_str, fingerprint_str, Chain, Envelope, Guardian, UniversalStruct,
+    decode_str, encode_str, fingerprint_str, Chain, ChainDiff, Envelope, Guardian, SignedEnvelope,
+    UniversalStruct,
 };
 use std::thread::sleep;
 use std::time::Duration;
@@ -310,4 +311,128 @@ fn suite_primitives() {
     let empty_fp = fingerprint_str("");
     assert_eq!(empty_fp.len(), 64);
     println!("✅ Primitives handle empty string");
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  SUITE 7 - Signed Envelopes (HMAC-SHA256)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+#[test]
+fn suite_signed_envelope() {
+    println!("\n━━━━ SUITE 7: Signed Envelopes ━━━━\n");
+    let key = "super-secret-key-2024";
+
+    // Standard mode round-trip
+    let env = SignedEnvelope::wrap(NIGHTMARE, key);
+    let result = env.unwrap_verified(key).unwrap();
+    assert_eq!(NIGHTMARE, result);
+    println!("✅ Standard signed: nightmare payload survived");
+
+    // URL-safe mode
+    let env_url = SignedEnvelope::wrap_url_safe(NIGHTMARE, key);
+    assert_eq!(NIGHTMARE, env_url.unwrap_verified(key).unwrap());
+    println!("✅ URL-safe signed: nightmare survived");
+
+    // Compressed mode
+    #[cfg(feature = "compression")]
+    {
+        let large = NIGHTMARE.repeat(50);
+        let env_comp = SignedEnvelope::wrap_compressed(&large, key).unwrap();
+        assert!(env_comp.d.len() < large.len());
+        assert_eq!(large, env_comp.unwrap_verified(key).unwrap());
+        println!("✅ Compressed signed: survived");
+    }
+
+    // TTL mode - valid
+    let env_ttl = SignedEnvelope::wrap_with_ttl("time-limited", key, 300);
+    assert_eq!("time-limited", env_ttl.unwrap_verified(key).unwrap());
+    println!("✅ TTL signed: valid within window");
+
+    // TTL mode - expired
+    let env_expired = SignedEnvelope::wrap_with_ttl("expired-data", key, 0);
+    sleep(Duration::from_millis(50));
+    assert!(env_expired.unwrap_verified(key).is_err());
+    println!("✅ TTL signed: correctly rejected after expiry");
+
+    // Wrong key
+    let env_wrong = SignedEnvelope::wrap("secret payload", key);
+    assert!(env_wrong.unwrap_verified("wrong-key").is_err());
+    println!("✅ Wrong key: correctly rejected");
+
+    // JSON round-trip
+    let env_json = SignedEnvelope::wrap(NIGHTMARE, key);
+    let json_str = env_json.to_json().unwrap();
+    let restored = SignedEnvelope::from_json(&json_str).unwrap();
+    assert_eq!(NIGHTMARE, restored.unwrap_verified(key).unwrap());
+    println!("✅ JSON round-trip: signed envelope survived serialization");
+
+    // Tamper detection — modify the data after signing
+    let mut env_tamper = SignedEnvelope::wrap("original", key);
+    env_tamper.d = entrouter_universal::encode_str("tampered");
+    assert!(env_tamper.unwrap_verified(key).is_err());
+    println!("✅ Tamper detection: modified data correctly rejected");
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  SUITE 8 - Chain Diff & Merge
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+#[test]
+fn suite_chain_diff_merge() {
+    println!("\n━━━━ SUITE 8: Chain Diff & Merge ━━━━\n");
+
+    // Identical chains
+    let mut a = Chain::new("genesis");
+    a.append("link 2");
+    a.append("link 3");
+
+    let a_json = a.to_json().unwrap();
+    let b = Chain::from_json(&a_json).unwrap();
+
+    let diff = Chain::diff(&a, &b);
+    assert_eq!(diff.common_length, 3);
+    assert_eq!(diff.a_extra, 0);
+    assert_eq!(diff.b_extra, 0);
+    assert_eq!(diff.diverges_at, None);
+    println!("✅ Identical chains: common=3, no divergence");
+
+    // Prefix chain — B is longer
+    let mut b_longer = Chain::from_json(&a_json).unwrap();
+    b_longer.append("link 4");
+    b_longer.append("link 5");
+
+    let diff2 = Chain::diff(&a, &b_longer);
+    assert_eq!(diff2.common_length, 3);
+    assert_eq!(diff2.a_extra, 0);
+    assert_eq!(diff2.b_extra, 2);
+    assert_eq!(diff2.diverges_at, None);
+    println!("✅ Prefix chain: A(3) is prefix of B(5)");
+
+    // Merge prefix — should return the longer
+    let merged = Chain::merge(&a, &b_longer).unwrap();
+    assert_eq!(merged.len(), 5);
+    assert!(merged.verify().valid);
+    println!("✅ Merge prefix: returned longer chain (5 links), valid");
+
+    // Divergent chains — both extend differently
+    let mut c = Chain::new("different genesis");
+    c.append("link 2 alt");
+    let diff3 = Chain::diff(&a, &c);
+    assert_eq!(diff3.common_length, 0);
+    assert!(diff3.diverges_at.is_some());
+    println!(
+        "✅ Divergent chains: diverge at link {}",
+        diff3.diverges_at.unwrap()
+    );
+
+    // Merge divergent — should error
+    let merge_err = Chain::merge(&a, &c);
+    assert!(merge_err.is_err());
+    println!("✅ Merge divergent: correctly rejected");
+
+    // ChainDiff serialization
+    let diff_json = serde_json::to_string(&diff).unwrap();
+    let diff_restored: ChainDiff = serde_json::from_str(&diff_json).unwrap();
+    assert_eq!(diff, diff_restored);
+    println!("✅ ChainDiff: JSON round-trip");
 }

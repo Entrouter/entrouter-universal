@@ -27,11 +27,15 @@ fn main() {
         eprintln!("  entrouter cron [schedule]      Encode command into a cron-safe line");
         eprintln!("  entrouter exec                 Decode base64 from stdin and execute locally");
         eprintln!(
+            "  entrouter multi-ssh <h1,h2>    Encode + execute command on multiple hosts via SSH"
+        );
+        eprintln!(
             "  entrouter mcp                  Start MCP server for VS Code Copilot integration"
         );
         eprintln!();
         eprintln!("Pipe-friendly: echo 'hello' | entrouter encode | entrouter verify");
         eprintln!("SSH example:   echo 'curl ...' | entrouter ssh root@your-vps");
+        eprintln!("Multi-SSH:     echo 'uptime' | entrouter multi-ssh root@h1,root@h2");
         eprintln!("Docker:        echo 'nginx -t' | entrouter docker my-nginx");
         eprintln!("Cron:          echo 'backup.sh' | entrouter cron '0 2 * * *'");
         std::process::exit(1);
@@ -49,6 +53,17 @@ fn main() {
             let host = &args[2];
             let input = read_stdin();
             cmd_ssh(host, &input);
+        }
+        "multi-ssh" => {
+            if args.len() < 3 {
+                eprintln!("Usage: entrouter multi-ssh <host1,host2,...>");
+                eprintln!("  Reads the command to run from stdin.");
+                eprintln!("  Example: echo 'uptime' | entrouter multi-ssh root@h1,root@h2");
+                std::process::exit(1);
+            }
+            let hosts = &args[2];
+            let input = read_stdin();
+            cmd_multi_ssh(hosts, &input);
         }
         "docker" => {
             if args.len() < 3 {
@@ -99,7 +114,7 @@ fn main() {
                 "exec" => cmd_exec(&input),
                 other => {
                     eprintln!("Unknown command: {other}");
-                    eprintln!("Try: encode, decode, verify, raw-encode, raw-decode, ssh, docker, kube, cron, exec");
+                    eprintln!("Try: encode, decode, verify, raw-encode, raw-decode, ssh, multi-ssh, docker, kube, cron, exec");
                     std::process::exit(1);
                 }
             }
@@ -231,6 +246,42 @@ fn cmd_ssh(host: &str, command: &str) {
 
     if !status.success() {
         std::process::exit(status.code().unwrap_or(1));
+    }
+}
+
+/// multi-ssh: execute the same command on multiple hosts sequentially
+fn cmd_multi_ssh(hosts_str: &str, command: &str) {
+    let encoded = entrouter_universal::encode_str(command);
+    let remote_cmd = format!("echo '{}' | entrouter raw-decode | sh", encoded);
+    let hosts: Vec<&str> = hosts_str.split(',').map(|h| h.trim()).collect();
+
+    let mut any_failed = false;
+    for host in &hosts {
+        eprintln!("[{}]", host);
+        let status = Command::new("ssh")
+            .arg(host)
+            .arg(&remote_cmd)
+            .stdin(std::process::Stdio::inherit())
+            .stdout(std::process::Stdio::inherit())
+            .stderr(std::process::Stdio::inherit())
+            .status();
+
+        match status {
+            Ok(s) => {
+                if !s.success() {
+                    eprintln!("[{}] exited with code {}", host, s.code().unwrap_or(-1));
+                    any_failed = true;
+                }
+            }
+            Err(e) => {
+                eprintln!("[{}] SSH failed: {}", host, e);
+                any_failed = true;
+            }
+        }
+    }
+
+    if any_failed {
+        std::process::exit(1);
     }
 }
 
