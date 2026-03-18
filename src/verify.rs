@@ -5,9 +5,9 @@
 #[derive(Debug, Clone, PartialEq)]
 pub struct VerifyResult {
     /// `true` if the fingerprint matched the original.
-    pub intact:      bool,
+    pub intact: bool,
     /// The decoded raw bytes.
-    pub decoded:     Vec<u8>,
+    pub decoded: Vec<u8>,
     /// SHA-256 fingerprint of the decoded data.
     pub fingerprint: String,
 }

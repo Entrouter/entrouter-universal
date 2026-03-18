@@ -25,20 +25,20 @@ use base64::{engine::general_purpose::STANDARD, Engine};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
+pub mod chain;
 pub mod envelope;
 pub mod guardian;
-pub mod verify;
-pub mod chain;
 pub mod universal_struct;
+pub mod verify;
 
 #[cfg(feature = "compression")]
 pub mod compress;
 
+pub use chain::Chain;
 pub use envelope::Envelope;
 pub use guardian::Guardian;
-pub use verify::VerifyResult;
-pub use chain::Chain;
 pub use universal_struct::UniversalStruct;
+pub use verify::VerifyResult;
 
 // ── Errors ────────────────────────────────────────────────
 
@@ -80,7 +80,8 @@ pub fn encode(input: &[u8]) -> String {
 
 /// Decode a Base64 string back to raw bytes.
 pub fn decode(input: &str) -> Result<Vec<u8>, UniversalError> {
-    STANDARD.decode(input)
+    STANDARD
+        .decode(input)
         .map_err(|e| UniversalError::DecodeError(e.to_string()))
 }
 
@@ -98,8 +99,7 @@ pub fn encode_str(input: &str) -> String {
 /// Decode a Base64 string back to a UTF-8 [`String`].
 pub fn decode_str(input: &str) -> Result<String, UniversalError> {
     let bytes = decode(input)?;
-    String::from_utf8(bytes)
-        .map_err(|e| UniversalError::DecodeError(e.to_string()))
+    String::from_utf8(bytes).map_err(|e| UniversalError::DecodeError(e.to_string()))
 }
 
 /// Compute a SHA-256 fingerprint of raw bytes, returned as a hex string.
@@ -129,11 +129,15 @@ pub fn verify(encoded: &str, original_fingerprint: &str) -> Result<VerifyResult,
     let decoded = decode(encoded)?;
     let actual_fingerprint = fingerprint(&decoded);
     if actual_fingerprint == original_fingerprint {
-        Ok(VerifyResult { intact: true, decoded, fingerprint: actual_fingerprint })
+        Ok(VerifyResult {
+            intact: true,
+            decoded,
+            fingerprint: actual_fingerprint,
+        })
     } else {
         Err(UniversalError::IntegrityViolation {
             expected: original_fingerprint.to_string(),
-            actual:   actual_fingerprint,
+            actual: actual_fingerprint,
         })
     }
 }
@@ -170,7 +174,10 @@ mod tests {
         let data = "race_token: abc\"123\"\nspecial chars & stuff";
         let env = Envelope::wrap_url_safe(data);
         // URL safe chars only
-        assert!(env.d.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_'));
+        assert!(env
+            .d
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '-' || c == '_'));
         assert_eq!(data, env.unwrap_verified().unwrap());
     }
 
@@ -206,7 +213,7 @@ mod tests {
         let mut json = env.to_json().unwrap();
         // Flip a character in the encoded data
         let idx = json.find('"').unwrap() + 5;
-        json.replace_range(idx..idx+1, "X");
+        json.replace_range(idx..idx + 1, "X");
         let tampered = Envelope::from_json(&json);
         let result = tampered.and_then(|e| e.unwrap_verified());
         assert!(result.is_err());
@@ -257,9 +264,9 @@ mod tests {
     #[test]
     fn struct_wraps_all_fields() {
         let wrapped = UniversalStruct::wrap_fields(&[
-            ("token",   "000001739850123456-abc\"def"),
+            ("token", "000001739850123456-abc\"def"),
             ("user_id", "john's account"),
-            ("amount",  "99.99"),
+            ("amount", "99.99"),
         ]);
 
         let result = wrapped.verify_all();
@@ -272,9 +279,9 @@ mod tests {
     #[test]
     fn struct_detects_field_mutation() {
         let mut wrapped = UniversalStruct::wrap_fields(&[
-            ("token",   "abc123"),
+            ("token", "abc123"),
             ("user_id", "john"),
-            ("amount",  "99.99"),
+            ("amount", "99.99"),
         ]);
 
         // Mutate just the amount field
@@ -291,10 +298,7 @@ mod tests {
 
     #[test]
     fn struct_to_map() {
-        let wrapped = UniversalStruct::wrap_fields(&[
-            ("a", "hello"),
-            ("b", "world"),
-        ]);
+        let wrapped = UniversalStruct::wrap_fields(&[("a", "hello"), ("b", "world")]);
         let map = wrapped.to_map().unwrap();
         assert_eq!(map["a"], "hello");
         assert_eq!(map["b"], "world");
@@ -302,10 +306,8 @@ mod tests {
 
     #[test]
     fn struct_serialises_round_trip() {
-        let wrapped = UniversalStruct::wrap_fields(&[
-            ("token", r#"abc"def\ghi"#),
-            ("user",  "john"),
-        ]);
+        let wrapped =
+            UniversalStruct::wrap_fields(&[("token", r#"abc"def\ghi"#), ("user", "john")]);
         let json = wrapped.to_json().unwrap();
         let restored = UniversalStruct::from_json(&json).unwrap();
         restored.assert_intact();
@@ -318,8 +320,8 @@ mod tests {
     fn guardian_clean_pipeline() {
         let mut g = Guardian::new("clean data 🔥");
         let encoded = g.encoded().to_string();
-        g.checkpoint("http",     &encoded);
-        g.checkpoint("redis",    &encoded);
+        g.checkpoint("http", &encoded);
+        g.checkpoint("redis", &encoded);
         g.checkpoint("postgres", &encoded);
         g.assert_intact();
     }
@@ -328,7 +330,7 @@ mod tests {
     fn guardian_finds_violation() {
         let mut g = Guardian::new("original");
         let clean = g.encoded().to_string();
-        g.checkpoint("http",  &clean);
+        g.checkpoint("http", &clean);
         g.checkpoint("redis", &encode_str("mangled"));
         assert_eq!(g.first_violation().unwrap().layer, "redis");
     }

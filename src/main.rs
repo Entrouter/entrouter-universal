@@ -13,9 +13,15 @@ fn main() {
         eprintln!("  entrouter verify               Read JSON from stdin, verify integrity");
         eprintln!("  entrouter raw-encode           Read stdin, print just the base64 (no JSON)");
         eprintln!("  entrouter raw-decode           Read base64 from stdin, print original data");
-        eprintln!("  entrouter ssh <host>           Encode + execute command on remote host via SSH");
-        eprintln!("  entrouter docker <container>   Encode + execute command inside a Docker container");
-        eprintln!("  entrouter kube <pod> [-n ns]   Encode + execute command inside a Kubernetes pod");
+        eprintln!(
+            "  entrouter ssh <host>           Encode + execute command on remote host via SSH"
+        );
+        eprintln!(
+            "  entrouter docker <container>   Encode + execute command inside a Docker container"
+        );
+        eprintln!(
+            "  entrouter kube <pod> [-n ns]   Encode + execute command inside a Kubernetes pod"
+        );
         eprintln!("  entrouter cron [schedule]      Encode command into a cron-safe line");
         eprintln!("  entrouter exec                 Decode base64 from stdin and execute locally");
         eprintln!();
@@ -53,7 +59,9 @@ fn main() {
             if args.len() < 3 {
                 eprintln!("Usage: entrouter kube <pod> [-n <namespace>]");
                 eprintln!("  Reads the command to run from stdin.");
-                eprintln!("  Example: echo 'cat /etc/config' | entrouter kube my-pod -n production");
+                eprintln!(
+                    "  Example: echo 'cat /etc/config' | entrouter kube my-pod -n production"
+                );
                 std::process::exit(1);
             }
             let pod = &args[2];
@@ -201,10 +209,7 @@ fn cmd_ssh(host: &str, command: &str) {
 
     // The remote side decodes the base64 and pipes it into sh
     // The base64 string is shell-safe — no quotes, braces, or special chars
-    let remote_cmd = format!(
-        "echo '{}' | entrouter raw-decode | sh",
-        encoded
-    );
+    let remote_cmd = format!("echo '{}' | entrouter raw-decode | sh", encoded);
 
     let status = Command::new("ssh")
         .arg(host)
@@ -259,8 +264,8 @@ fn cmd_kube(pod: &str, namespace: Option<&str>, command: &str) {
     }
     cmd.args([pod, "--", "sh", "-c", &remote_cmd]);
     cmd.stdin(std::process::Stdio::inherit())
-       .stdout(std::process::Stdio::inherit())
-       .stderr(std::process::Stdio::inherit());
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit());
 
     let status = cmd.status().unwrap_or_else(|e| {
         eprintln!("Failed to run kubectl: {e}");

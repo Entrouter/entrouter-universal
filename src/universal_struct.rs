@@ -15,9 +15,9 @@
 //    // tells you exactly which field got touched
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-use std::collections::HashMap;
+use crate::{decode_str, encode_str, fingerprint_str, UniversalError};
 use serde::{Deserialize, Serialize};
-use crate::{encode_str, decode_str, fingerprint_str, UniversalError};
+use std::collections::HashMap;
 
 /// A single field wrapped with its Base64 encoding and SHA-256 fingerprint.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -35,8 +35,8 @@ impl WrappedField {
     pub fn wrap(name: &str, value: &str) -> Self {
         Self {
             name: name.to_string(),
-            d:    encode_str(value),
-            f:    fingerprint_str(value),
+            d: encode_str(value),
+            f: fingerprint_str(value),
         }
     }
 
@@ -47,7 +47,7 @@ impl WrappedField {
         if actual_fp != self.f {
             return Err(UniversalError::IntegrityViolation {
                 expected: self.f.clone(),
-                actual:   actual_fp,
+                actual: actual_fp,
             });
         }
         Ok(decoded)
@@ -73,13 +73,13 @@ pub struct UniversalStruct {
 #[derive(Debug, Clone, PartialEq)]
 pub struct FieldVerifyResult {
     /// The field name.
-    pub name:    String,
+    pub name: String,
     /// `true` if the field passed integrity verification.
-    pub intact:  bool,
+    pub intact: bool,
     /// The decoded value, if verification succeeded.
-    pub value:   Option<String>,
+    pub value: Option<String>,
     /// Error message, if verification failed.
-    pub error:   Option<String>,
+    pub error: Option<String>,
 }
 
 impl std::fmt::Display for FieldVerifyResult {
@@ -87,8 +87,12 @@ impl std::fmt::Display for FieldVerifyResult {
         if self.intact {
             write!(f, "{}: Intact", self.name)
         } else {
-            write!(f, "{}: Violated ({})", self.name,
-                self.error.as_deref().unwrap_or("unknown"))
+            write!(
+                f,
+                "{}: Violated ({})",
+                self.name,
+                self.error.as_deref().unwrap_or("unknown")
+            )
         }
     }
 }
@@ -97,11 +101,11 @@ impl std::fmt::Display for FieldVerifyResult {
 #[derive(Debug, Clone, PartialEq)]
 pub struct StructVerifyResult {
     /// `true` if every field passed verification.
-    pub all_intact:  bool,
+    pub all_intact: bool,
     /// Individual per-field results.
-    pub fields:      Vec<FieldVerifyResult>,
+    pub fields: Vec<FieldVerifyResult>,
     /// Names of fields that failed verification.
-    pub violations:  Vec<String>,
+    pub violations: Vec<String>,
 }
 
 impl std::fmt::Display for StructVerifyResult {
@@ -119,7 +123,8 @@ impl UniversalStruct {
     #[must_use]
     pub fn wrap_fields(fields: &[(&str, &str)]) -> Self {
         Self {
-            fields: fields.iter()
+            fields: fields
+                .iter()
                 .map(|(name, value)| WrappedField::wrap(name, value))
                 .collect(),
         }
@@ -129,37 +134,44 @@ impl UniversalStruct {
     pub fn verify_all(&self) -> StructVerifyResult {
         let mut all_intact = true;
         let mut violations = Vec::new();
-        let fields = self.fields.iter().map(|f| {
-            match f.verify() {
+        let fields = self
+            .fields
+            .iter()
+            .map(|f| match f.verify() {
                 Ok(value) => FieldVerifyResult {
-                    name:   f.name.clone(),
+                    name: f.name.clone(),
                     intact: true,
-                    value:  Some(value),
-                    error:  None,
+                    value: Some(value),
+                    error: None,
                 },
                 Err(e) => {
                     all_intact = false;
                     violations.push(f.name.clone());
                     FieldVerifyResult {
-                        name:   f.name.clone(),
+                        name: f.name.clone(),
                         intact: false,
-                        value:  None,
-                        error:  Some(e.to_string()),
+                        value: None,
+                        error: Some(e.to_string()),
                     }
                 }
-            }
-        }).collect();
+            })
+            .collect();
 
-        StructVerifyResult { all_intact, fields, violations }
+        StructVerifyResult {
+            all_intact,
+            fields,
+            violations,
+        }
     }
 
     /// Get a verified field value by name
     pub fn get(&self, name: &str) -> Result<String, UniversalError> {
-        self.fields.iter()
+        self.fields
+            .iter()
             .find(|f| f.name == name)
-            .ok_or_else(|| UniversalError::MalformedEnvelope(
-                format!("field '{}' not found", name)
-            ))?
+            .ok_or_else(|| {
+                UniversalError::MalformedEnvelope(format!("field '{}' not found", name))
+            })?
             .verify()
     }
 
@@ -169,10 +181,12 @@ impl UniversalStruct {
         if !result.all_intact {
             return Err(UniversalError::IntegrityViolation {
                 expected: "all fields intact".to_string(),
-                actual:   format!("violations in: {}", result.violations.join(", ")),
+                actual: format!("violations in: {}", result.violations.join(", ")),
             });
         }
-        Ok(result.fields.into_iter()
+        Ok(result
+            .fields
+            .into_iter()
             .filter_map(|f| f.value.map(|v| (f.name, v)))
             .collect())
     }
@@ -196,8 +210,12 @@ impl UniversalStruct {
         out.push_str(&format!("All intact: {}\n\n", result.all_intact));
         for field in &result.fields {
             let status = if field.intact { "✅" } else { "❌ VIOLATED" };
-            out.push_str(&format!("  {}: {} - {}\n", field.name, status,
-                field.value.as_deref().unwrap_or("-")));
+            out.push_str(&format!(
+                "  {}: {} - {}\n",
+                field.name,
+                status,
+                field.value.as_deref().unwrap_or("-")
+            ));
             if let Some(err) = &field.error {
                 out.push_str(&format!("    Error: {}\n", err));
             }
@@ -208,13 +226,11 @@ impl UniversalStruct {
 
     /// Serialize this struct to a JSON string.
     pub fn to_json(&self) -> Result<String, UniversalError> {
-        serde_json::to_string(self)
-            .map_err(|e| UniversalError::SerializationError(e.to_string()))
+        serde_json::to_string(self).map_err(|e| UniversalError::SerializationError(e.to_string()))
     }
 
     /// Deserialize a struct from a JSON string.
     pub fn from_json(s: &str) -> Result<Self, UniversalError> {
-        serde_json::from_str(s)
-            .map_err(|e| UniversalError::SerializationError(e.to_string()))
+        serde_json::from_str(s).map_err(|e| UniversalError::SerializationError(e.to_string()))
     }
 }

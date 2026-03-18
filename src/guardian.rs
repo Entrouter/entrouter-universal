@@ -2,21 +2,21 @@
 //  Entrouter Universal - Guardian v3
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-use crate::{encode_str, decode_str, fingerprint_str};
+use crate::{decode_str, encode_str, fingerprint_str};
 
 /// A record of a single checkpoint in the pipeline.
 #[derive(Debug, Clone)]
 pub struct LayerRecord {
     /// Human-readable name of this pipeline stage.
-    pub layer:       String,
+    pub layer: String,
     /// The Base64-encoded payload at this stage.
-    pub encoded:     String,
+    pub encoded: String,
     /// SHA-256 fingerprint computed at this stage.
     pub fingerprint: String,
     /// `true` if the fingerprint still matches the original.
-    pub intact:      bool,
+    pub intact: bool,
     /// Decode error message, if the payload could not be decoded.
-    pub error:       Option<String>,
+    pub error: Option<String>,
 }
 
 /// Tracks data integrity across multiple pipeline stages.
@@ -38,8 +38,8 @@ pub struct LayerRecord {
 #[derive(Debug, Clone)]
 pub struct Guardian {
     original_fingerprint: String,
-    encoded:              String,
-    pub layers:           Vec<LayerRecord>,
+    encoded: String,
+    pub layers: Vec<LayerRecord>,
 }
 
 impl Guardian {
@@ -48,8 +48,8 @@ impl Guardian {
     pub fn new(input: &str) -> Self {
         Self {
             original_fingerprint: fingerprint_str(input),
-            encoded:              encode_str(input),
-            layers:               Vec::new(),
+            encoded: encode_str(input),
+            layers: Vec::new(),
         }
     }
 
@@ -60,20 +60,20 @@ impl Guardian {
                 let fp = fingerprint_str(&decoded);
                 let intact = fp == self.original_fingerprint;
                 self.layers.push(LayerRecord {
-                    layer:       layer_name.to_string(),
-                    encoded:     current_encoded.to_string(),
+                    layer: layer_name.to_string(),
+                    encoded: current_encoded.to_string(),
                     fingerprint: fp,
                     intact,
-                    error:       None,
+                    error: None,
                 });
             }
             Err(e) => {
                 self.layers.push(LayerRecord {
-                    layer:       layer_name.to_string(),
-                    encoded:     current_encoded.to_string(),
+                    layer: layer_name.to_string(),
+                    encoded: current_encoded.to_string(),
                     fingerprint: String::new(),
-                    intact:      false,
-                    error:       Some(e.to_string()),
+                    intact: false,
+                    error: Some(e.to_string()),
                 });
             }
         }
@@ -113,11 +113,19 @@ impl Guardian {
     pub fn report(&self) -> String {
         let mut out = String::new();
         out.push_str("━━━━ Entrouter Universal Pipeline Report ━━━━\n");
-        out.push_str(&format!("Original fingerprint: {}\n", self.original_fingerprint));
+        out.push_str(&format!(
+            "Original fingerprint: {}\n",
+            self.original_fingerprint
+        ));
         out.push_str(&format!("Overall intact: {}\n\n", self.is_intact()));
         for (i, layer) in self.layers.iter().enumerate() {
             let status = if layer.intact { "✅" } else { "❌ VIOLATED" };
-            out.push_str(&format!("  Layer {}: {} - {}\n", i + 1, layer.layer, status));
+            out.push_str(&format!(
+                "  Layer {}: {} - {}\n",
+                i + 1,
+                layer.layer,
+                status
+            ));
             if !layer.intact {
                 out.push_str(&format!(
                     "    Expected: {}\n    Got:      {}\n",

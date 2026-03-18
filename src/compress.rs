@@ -6,9 +6,9 @@
 //  same integrity guarantees.
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-use flate2::{write::GzEncoder, read::GzDecoder, Compression};
-use std::io::{Write, Read};
 use crate::UniversalError;
+use flate2::{read::GzDecoder, write::GzEncoder, Compression};
+use std::io::{Read, Write};
 
 /// Maximum decompressed size (16 MiB) to guard against gzip bombs.
 const MAX_DECOMPRESS_SIZE: usize = 16 * 1024 * 1024;
@@ -16,9 +16,11 @@ const MAX_DECOMPRESS_SIZE: usize = 16 * 1024 * 1024;
 /// Gzip compress bytes
 pub fn compress(input: &[u8]) -> Result<Vec<u8>, UniversalError> {
     let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
-    encoder.write_all(input)
+    encoder
+        .write_all(input)
         .map_err(|e| UniversalError::CompressError(e.to_string()))?;
-    encoder.finish()
+    encoder
+        .finish()
         .map_err(|e| UniversalError::CompressError(e.to_string()))
 }
 
@@ -28,16 +30,18 @@ pub fn decompress(input: &[u8]) -> Result<Vec<u8>, UniversalError> {
     let mut out = Vec::new();
     let mut buf = [0u8; 8192];
     loop {
-        let n = decoder.read(&mut buf)
+        let n = decoder
+            .read(&mut buf)
             .map_err(|e| UniversalError::CompressError(e.to_string()))?;
         if n == 0 {
             break;
         }
         out.extend_from_slice(&buf[..n]);
         if out.len() > MAX_DECOMPRESS_SIZE {
-            return Err(UniversalError::CompressError(
-                format!("decompressed size exceeds {} byte limit", MAX_DECOMPRESS_SIZE),
-            ));
+            return Err(UniversalError::CompressError(format!(
+                "decompressed size exceeds {} byte limit",
+                MAX_DECOMPRESS_SIZE
+            )));
         }
     }
     Ok(out)

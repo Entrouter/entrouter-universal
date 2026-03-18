@@ -3,8 +3,7 @@
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 use entrouter_universal::{
-    Envelope, Guardian, Chain, UniversalStruct,
-    encode_str, decode_str, fingerprint_str,
+    decode_str, encode_str, fingerprint_str, Chain, Envelope, Guardian, UniversalStruct,
 };
 use std::thread::sleep;
 use std::time::Duration;
@@ -40,7 +39,10 @@ fn suite_envelope_all_modes() {
 
     // URL safe - no + or / characters
     let env_url = Envelope::wrap_url_safe(NIGHTMARE);
-    assert!(env_url.d.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_'));
+    assert!(env_url
+        .d
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '-' || c == '_'));
     assert_eq!(NIGHTMARE, env_url.unwrap_verified().unwrap());
     println!("✅ URL-safe: no + or / in encoded, nightmare survived");
 
@@ -49,7 +51,10 @@ fn suite_envelope_all_modes() {
     {
         let large = NIGHTMARE.repeat(50);
         let env_comp = Envelope::wrap_compressed(&large).unwrap();
-        assert!(env_comp.d.len() < large.len(), "compressed should be smaller");
+        assert!(
+            env_comp.d.len() < large.len(),
+            "compressed should be smaller"
+        );
         assert_eq!(large, env_comp.unwrap_verified().unwrap());
         println!("✅ Compressed: {}x payload, smaller on wire, survived", 50);
     }
@@ -59,7 +64,10 @@ fn suite_envelope_all_modes() {
     assert!(!env_ttl.is_expired());
     assert!(env_ttl.ttl_remaining().unwrap() > 0);
     assert_eq!(NIGHTMARE, env_ttl.unwrap_verified().unwrap());
-    println!("✅ TTL valid: nightmare survived, {} secs remaining", env_ttl.ttl_remaining().unwrap());
+    println!(
+        "✅ TTL valid: nightmare survived, {} secs remaining",
+        env_ttl.ttl_remaining().unwrap()
+    );
 
     // TTL expired
     let env_expired = Envelope::wrap_with_ttl("stale", 0);
@@ -90,7 +98,10 @@ fn suite_chain() {
     chain.append("user_john joined - token: 000001739850000001");
     chain.append("user_jane joined - token: 000001739850000002");
     chain.append("user_bob  joined - token: 000001739850000003");
-    chain.append(&format!("WINNER: user_john - token: 000001739850000001 - payload: {}", NIGHTMARE));
+    chain.append(&format!(
+        "WINNER: user_john - token: 000001739850000001 - payload: {}",
+        NIGHTMARE
+    ));
     chain.append("race:listing_abc123 - CLOSED");
 
     let result = chain.verify();
@@ -105,7 +116,10 @@ fn suite_chain() {
     let tampered_result = tampered.verify();
     assert!(!tampered_result.valid);
     assert_eq!(tampered_result.broken_at, Some(4));
-    println!("✅ Tampering detected at link {}", tampered_result.broken_at.unwrap());
+    println!(
+        "✅ Tampering detected at link {}",
+        tampered_result.broken_at.unwrap()
+    );
 
     // Serialise and restore
     let json = chain.to_json().unwrap();
@@ -124,11 +138,14 @@ fn suite_universal_struct() {
 
     // Real Entrouter race winner struct
     let wrapped = UniversalStruct::wrap_fields(&[
-        ("token",      "000001739850123456-000004521890000-a3f1b2-user_john"),
-        ("user_id",    "john's account \"special\""),
-        ("amount",     "299.99"),
+        (
+            "token",
+            "000001739850123456-000004521890000-a3f1b2-user_john",
+        ),
+        ("user_id", "john's account \"special\""),
+        ("amount", "299.99"),
         ("listing_id", "listing:abc\\123"),
-        ("proof",      NIGHTMARE),
+        ("proof", NIGHTMARE),
     ]);
 
     // All fields intact
@@ -177,25 +194,25 @@ fn suite_guardian() {
     // Clean pipeline
     let mut g = Guardian::new(NIGHTMARE);
     let clean = g.encoded().to_string();
-    g.checkpoint("http_ingress",    &clean);
-    g.checkpoint("json_parse",      &clean);
+    g.checkpoint("http_ingress", &clean);
+    g.checkpoint("json_parse", &clean);
     g.checkpoint("rust_processing", &clean);
-    g.checkpoint("redis_write",     &clean);
-    g.checkpoint("redis_read",      &clean);
-    g.checkpoint("postgres_write",  &clean);
-    g.checkpoint("postgres_read",   &clean);
-    g.checkpoint("http_egress",     &clean);
+    g.checkpoint("redis_write", &clean);
+    g.checkpoint("redis_read", &clean);
+    g.checkpoint("postgres_write", &clean);
+    g.checkpoint("postgres_read", &clean);
+    g.checkpoint("http_egress", &clean);
     g.assert_intact();
     println!("✅ 8-layer clean pipeline: all intact");
 
     // Redis mangles it
     let mut g2 = Guardian::new(NIGHTMARE);
     let clean2 = g2.encoded().to_string();
-    g2.checkpoint("http_ingress",    &clean2);
-    g2.checkpoint("json_parse",      &clean2);
+    g2.checkpoint("http_ingress", &clean2);
+    g2.checkpoint("json_parse", &clean2);
     g2.checkpoint("rust_processing", &clean2);
-    g2.checkpoint("redis_write",     &encode_str("redis mangled it 💀"));
-    g2.checkpoint("postgres_write",  &encode_str("postgres made it worse"));
+    g2.checkpoint("redis_write", &encode_str("redis mangled it 💀"));
+    g2.checkpoint("postgres_write", &encode_str("postgres made it worse"));
     assert!(!g2.is_intact());
     assert_eq!(g2.first_violation().unwrap().layer, "redis_write");
     println!("✅ Mutation pinpointed at redis_write");
@@ -224,10 +241,7 @@ fn suite_cross_machine() {
     println!("✅ Cross-machine: PC wrapped → VPS verified - identical");
 
     // With per-field struct
-    let wrapped = UniversalStruct::wrap_fields(&[
-        ("token",   NIGHTMARE),
-        ("user_id", "john"),
-    ]);
+    let wrapped = UniversalStruct::wrap_fields(&[("token", NIGHTMARE), ("user_id", "john")]);
     let wire = wrapped.to_json().unwrap();
 
     // VPS side
@@ -285,7 +299,10 @@ fn suite_primitives() {
     let fp2 = fingerprint_str(NIGHTMARE);
     assert_eq!(fp1, fp2);
     assert_eq!(fp1.len(), 64);
-    println!("✅ fingerprint_str: nightmare fingerprint stable - {}", &fp1[..16]);
+    println!(
+        "✅ fingerprint_str: nightmare fingerprint stable - {}",
+        &fp1[..16]
+    );
 
     // Empty string
     let empty_decoded = decode_str(&encode_str("")).unwrap();

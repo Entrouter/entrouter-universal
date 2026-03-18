@@ -11,13 +11,13 @@
 //  All modes unwrap via unwrap_verified().
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+use crate::{fingerprint_str, UniversalError};
 use base64::{
     engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},
     Engine,
 };
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
-use crate::{fingerprint_str, UniversalError};
 
 #[cfg(feature = "compression")]
 use crate::compress::{compress, decompress};
@@ -146,30 +146,29 @@ impl Envelope {
 
         // Decode
         let bytes = match self.m {
-            EnvelopeMode::Standard | EnvelopeMode::Ttl => {
-                STANDARD.decode(&self.d)
-                    .map_err(|e| UniversalError::DecodeError(e.to_string()))?
-            }
-            EnvelopeMode::UrlSafe => {
-                URL_SAFE_NO_PAD.decode(&self.d)
-                    .map_err(|e| UniversalError::DecodeError(e.to_string()))?
-            }
+            EnvelopeMode::Standard | EnvelopeMode::Ttl => STANDARD
+                .decode(&self.d)
+                .map_err(|e| UniversalError::DecodeError(e.to_string()))?,
+            EnvelopeMode::UrlSafe => URL_SAFE_NO_PAD
+                .decode(&self.d)
+                .map_err(|e| UniversalError::DecodeError(e.to_string()))?,
             #[cfg(feature = "compression")]
             EnvelopeMode::Compressed => {
-                let compressed = STANDARD.decode(&self.d)
+                let compressed = STANDARD
+                    .decode(&self.d)
                     .map_err(|e| UniversalError::DecodeError(e.to_string()))?;
                 decompress(&compressed)?
             }
             #[cfg(not(feature = "compression"))]
             EnvelopeMode::Compressed => {
                 return Err(UniversalError::DecodeError(
-                    "compression feature not enabled".to_string()
+                    "compression feature not enabled".to_string(),
                 ))
             }
         };
 
-        let decoded = String::from_utf8(bytes)
-            .map_err(|e| UniversalError::DecodeError(e.to_string()))?;
+        let decoded =
+            String::from_utf8(bytes).map_err(|e| UniversalError::DecodeError(e.to_string()))?;
 
         // Verify fingerprint
         let actual_fp = fingerprint_str(&decoded);
@@ -186,29 +185,27 @@ impl Envelope {
     /// Decode without verification - use when you trust the source.
     pub fn unwrap_raw(&self) -> Result<String, UniversalError> {
         let bytes = match self.m {
-            EnvelopeMode::Standard | EnvelopeMode::Ttl => {
-                STANDARD.decode(&self.d)
-                    .map_err(|e| UniversalError::DecodeError(e.to_string()))?
-            }
-            EnvelopeMode::UrlSafe => {
-                URL_SAFE_NO_PAD.decode(&self.d)
-                    .map_err(|e| UniversalError::DecodeError(e.to_string()))?
-            }
+            EnvelopeMode::Standard | EnvelopeMode::Ttl => STANDARD
+                .decode(&self.d)
+                .map_err(|e| UniversalError::DecodeError(e.to_string()))?,
+            EnvelopeMode::UrlSafe => URL_SAFE_NO_PAD
+                .decode(&self.d)
+                .map_err(|e| UniversalError::DecodeError(e.to_string()))?,
             #[cfg(feature = "compression")]
             EnvelopeMode::Compressed => {
-                let compressed = STANDARD.decode(&self.d)
+                let compressed = STANDARD
+                    .decode(&self.d)
                     .map_err(|e| UniversalError::DecodeError(e.to_string()))?;
                 decompress(&compressed)?
             }
             #[cfg(not(feature = "compression"))]
             EnvelopeMode::Compressed => {
                 return Err(UniversalError::DecodeError(
-                    "compression feature not enabled".to_string()
+                    "compression feature not enabled".to_string(),
                 ))
             }
         };
-        String::from_utf8(bytes)
-            .map_err(|e| UniversalError::DecodeError(e.to_string()))
+        String::from_utf8(bytes).map_err(|e| UniversalError::DecodeError(e.to_string()))
     }
 
     /// Returns `true` if this envelope has expired (TTL mode only).
@@ -252,13 +249,11 @@ impl Envelope {
 
     /// Serialize this envelope to a JSON string.
     pub fn to_json(&self) -> Result<String, UniversalError> {
-        serde_json::to_string(self)
-            .map_err(|e| UniversalError::SerializationError(e.to_string()))
+        serde_json::to_string(self).map_err(|e| UniversalError::SerializationError(e.to_string()))
     }
 
     /// Deserialize an envelope from a JSON string.
     pub fn from_json(s: &str) -> Result<Self, UniversalError> {
-        serde_json::from_str(s)
-            .map_err(|e| UniversalError::SerializationError(e.to_string()))
+        serde_json::from_str(s).map_err(|e| UniversalError::SerializationError(e.to_string()))
     }
 }

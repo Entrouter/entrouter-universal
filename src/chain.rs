@@ -12,9 +12,9 @@
 //  where the chain was cut.
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+use crate::{encode_str, fingerprint_str, UniversalError};
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
-use crate::{encode_str, fingerprint_str, UniversalError};
 
 /// A single link in a cryptographic chain.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -35,10 +35,11 @@ impl ChainLink {
     /// Verify this link's data integrity
     pub fn verify_data(&self) -> Result<String, UniversalError> {
         use base64::{engine::general_purpose::STANDARD, Engine};
-        let bytes = STANDARD.decode(&self.d)
+        let bytes = STANDARD
+            .decode(&self.d)
             .map_err(|e| UniversalError::DecodeError(e.to_string()))?;
-        let decoded = String::from_utf8(bytes)
-            .map_err(|e| UniversalError::DecodeError(e.to_string()))?;
+        let decoded =
+            String::from_utf8(bytes).map_err(|e| UniversalError::DecodeError(e.to_string()))?;
         let data_fp = fingerprint_str(&decoded);
         // Non-genesis links have a chained fingerprint
         let actual_fp = match &self.prev {
@@ -59,13 +60,13 @@ impl ChainLink {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ChainVerifyResult {
     /// `true` if every link is intact and properly linked.
-    pub valid:          bool,
+    pub valid: bool,
     /// Total number of links inspected.
-    pub total_links:    usize,
+    pub total_links: usize,
     /// 1-based index of the first broken link, if any.
-    pub broken_at:      Option<usize>,
+    pub broken_at: Option<usize>,
     /// Human-readable reason the chain is broken, if any.
-    pub broken_reason:  Option<String>,
+    pub broken_reason: Option<String>,
 }
 
 impl std::fmt::Display for ChainVerifyResult {
@@ -73,10 +74,13 @@ impl std::fmt::Display for ChainVerifyResult {
         if self.valid {
             write!(f, "Valid chain ({} links)", self.total_links)
         } else {
-            write!(f, "Broken at link {} of {}: {}",
+            write!(
+                f,
+                "Broken at link {} of {}: {}",
                 self.broken_at.unwrap_or(0),
                 self.total_links,
-                self.broken_reason.as_deref().unwrap_or("unknown"))
+                self.broken_reason.as_deref().unwrap_or("unknown")
+            )
         }
     }
 }
@@ -98,9 +102,9 @@ impl Chain {
             .as_secs();
 
         let link = ChainLink {
-            seq:  1,
-            d:    encode_str(data),
-            f:    fingerprint_str(data),
+            seq: 1,
+            d: encode_str(data),
+            f: fingerprint_str(data),
             prev: None,
             ts,
         };
@@ -119,13 +123,17 @@ impl Chain {
 
         // Chain fingerprint includes previous link's fingerprint
         // so you can't reorder or insert links without breaking everything after
-        let combined = format!("{}{}", fingerprint_str(data), prev_fp.as_deref().unwrap_or(""));
+        let combined = format!(
+            "{}{}",
+            fingerprint_str(data),
+            prev_fp.as_deref().unwrap_or("")
+        );
         let chained_fp = fingerprint_str(&combined);
 
         self.links.push(ChainLink {
             seq,
-            d:    encode_str(data),
-            f:    chained_fp,
+            d: encode_str(data),
+            f: chained_fp,
             prev: prev_fp,
             ts,
         });
@@ -166,7 +174,8 @@ impl Chain {
                         broken_at: Some(i + 1),
                         broken_reason: Some(format!(
                             "Chain broken: link {} doesn't reference link {}",
-                            i + 1, i
+                            i + 1,
+                            i
                         )),
                     };
                 }
@@ -193,14 +202,12 @@ impl Chain {
 
     /// Serialize to JSON - safe to store in Redis, Postgres, send anywhere
     pub fn to_json(&self) -> Result<String, UniversalError> {
-        serde_json::to_string(self)
-            .map_err(|e| UniversalError::SerializationError(e.to_string()))
+        serde_json::to_string(self).map_err(|e| UniversalError::SerializationError(e.to_string()))
     }
 
     /// Deserialize a chain from a JSON string.
     pub fn from_json(s: &str) -> Result<Self, UniversalError> {
-        serde_json::from_str(s)
-            .map_err(|e| UniversalError::SerializationError(e.to_string()))
+        serde_json::from_str(s).map_err(|e| UniversalError::SerializationError(e.to_string()))
     }
 
     /// Print a chain report
@@ -208,12 +215,22 @@ impl Chain {
         let result = self.verify();
         let mut out = String::new();
         out.push_str("━━━━ Entrouter Universal Chain Report ━━━━\n");
-        out.push_str(&format!("Links: {} | Valid: {}\n\n", self.links.len(), result.valid));
+        out.push_str(&format!(
+            "Links: {} | Valid: {}\n\n",
+            self.links.len(),
+            result.valid
+        ));
         for link in &self.links {
-            let status = if result.broken_at == Some(link.seq as usize) { "❌" } else { "✅" };
+            let status = if result.broken_at == Some(link.seq as usize) {
+                "❌"
+            } else {
+                "✅"
+            };
             out.push_str(&format!(
                 "  Link {}: {} | ts: {} | fp: {}...\n",
-                link.seq, status, link.ts,
+                link.seq,
+                status,
+                link.ts,
                 &link.f[..16]
             ));
         }
