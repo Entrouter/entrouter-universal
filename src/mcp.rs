@@ -291,35 +291,67 @@ fn call_tool(name: &str, args: &Value) -> Value {
                 ])
                 .arg(host)
                 .arg(&remote_cmd)
-                .output()
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .spawn()
             {
-                Ok(output) => {
-                    let stdout = String::from_utf8_lossy(&output.stdout);
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    let mut result = String::new();
-                    if !stdout.is_empty() {
-                        result.push_str(&stdout);
-                    }
-                    if !stderr.is_empty() {
-                        if !result.is_empty() {
-                            result.push('\n');
+                Ok(mut child) => {
+                    let timeout = std::time::Duration::from_secs(30);
+                    let start = std::time::Instant::now();
+                    loop {
+                        match child.try_wait() {
+                            Ok(Some(status)) => {
+                                let mut stdout = String::new();
+                                let mut stderr = String::new();
+                                if let Some(mut out) = child.stdout.take() {
+                                    use std::io::Read;
+                                    let _ = out.read_to_string(&mut stdout);
+                                }
+                                if let Some(mut err) = child.stderr.take() {
+                                    use std::io::Read;
+                                    let _ = err.read_to_string(&mut stderr);
+                                }
+                                let mut result = String::new();
+                                if !stdout.is_empty() {
+                                    result.push_str(&stdout);
+                                }
+                                if !stderr.is_empty() {
+                                    if !result.is_empty() {
+                                        result.push('\n');
+                                    }
+                                    result.push_str("[stderr] ");
+                                    result.push_str(&stderr);
+                                }
+                                if result.is_empty() {
+                                    result = format!(
+                                        "Command completed with exit code {}",
+                                        status.code().unwrap_or(-1)
+                                    );
+                                }
+                                break json!({
+                                    "content": [{
+                                        "type": "text",
+                                        "text": result
+                                    }],
+                                    "isError": !status.success()
+                                });
+                            }
+                            Ok(None) => {
+                                if start.elapsed() > timeout {
+                                    let _ = child.kill();
+                                    break tool_error(
+                                        "SSH command timed out after 30 seconds",
+                                    );
+                                }
+                                std::thread::sleep(std::time::Duration::from_millis(100));
+                            }
+                            Err(e) => {
+                                break tool_error(&format!(
+                                    "Failed to wait on SSH process: {e}"
+                                ));
+                            }
                         }
-                        result.push_str("[stderr] ");
-                        result.push_str(&stderr);
                     }
-                    if result.is_empty() {
-                        result = format!(
-                            "Command completed with exit code {}",
-                            output.status.code().unwrap_or(-1)
-                        );
-                    }
-                    json!({
-                        "content": [{
-                            "type": "text",
-                            "text": result
-                        }],
-                        "isError": !output.status.success()
-                    })
                 }
                 Err(e) => tool_error(&format!("SSH failed: {e}")),
             }
