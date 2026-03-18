@@ -272,9 +272,7 @@ impl Chain {
     pub fn merge(a: &Chain, b: &Chain) -> Result<Chain, UniversalError> {
         let diff = Chain::diff(a, b);
         if let Some(pos) = diff.diverges_at {
-            return Err(UniversalError::ChainMergeConflict {
-                diverges_at: pos,
-            });
+            return Err(UniversalError::ChainMergeConflict { diverges_at: pos });
         }
         // One is a prefix -- return the longer one
         if a.links.len() >= b.links.len() {

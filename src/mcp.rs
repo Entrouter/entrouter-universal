@@ -13,14 +13,22 @@ fn ssh_args() -> Vec<String> {
     let _ = std::fs::create_dir_all(&socket_dir);
     let control_path = socket_dir.join("%r@%h:%p");
     vec![
-        "-o".into(), "BatchMode=yes".into(),
-        "-o".into(), "StrictHostKeyChecking=accept-new".into(),
-        "-o".into(), "ConnectTimeout=10".into(),
-        "-o".into(), "ServerAliveInterval=5".into(),
-        "-o".into(), "ServerAliveCountMax=3".into(),
-        "-o".into(), format!("ControlPath={}", control_path.display()),
-        "-o".into(), "ControlMaster=auto".into(),
-        "-o".into(), "ControlPersist=300".into(),
+        "-o".into(),
+        "BatchMode=yes".into(),
+        "-o".into(),
+        "StrictHostKeyChecking=accept-new".into(),
+        "-o".into(),
+        "ConnectTimeout=10".into(),
+        "-o".into(),
+        "ServerAliveInterval=5".into(),
+        "-o".into(),
+        "ServerAliveCountMax=3".into(),
+        "-o".into(),
+        format!("ControlPath={}", control_path.display()),
+        "-o".into(),
+        "ControlMaster=auto".into(),
+        "-o".into(),
+        "ControlPersist=300".into(),
     ]
 }
 
@@ -1084,7 +1092,10 @@ fn call_tool(name: &str, args: &Value) -> Value {
                                     });
                                 } else {
                                     let msg = if stderr_out.is_empty() {
-                                        format!("SCP failed with exit code {}", status.code().unwrap_or(-1))
+                                        format!(
+                                            "SCP failed with exit code {}",
+                                            status.code().unwrap_or(-1)
+                                        )
                                     } else {
                                         format!("SCP failed: {}", stderr_out.trim())
                                     };
@@ -1142,7 +1153,10 @@ fn call_tool(name: &str, args: &Value) -> Value {
                                 }
                                 if !status.success() {
                                     let msg = if stderr_out.is_empty() {
-                                        format!("SCP download failed with exit code {}", status.code().unwrap_or(-1))
+                                        format!(
+                                            "SCP download failed with exit code {}",
+                                            status.code().unwrap_or(-1)
+                                        )
                                     } else {
                                         format!("SCP download failed: {}", stderr_out.trim())
                                     };
@@ -1160,7 +1174,9 @@ fn call_tool(name: &str, args: &Value) -> Value {
                                         });
                                     }
                                     Err(e) => {
-                                        break tool_error(&format!("Failed to decode remote file content: {e}"));
+                                        break tool_error(&format!(
+                                            "Failed to decode remote file content: {e}"
+                                        ));
                                     }
                                 }
                             }

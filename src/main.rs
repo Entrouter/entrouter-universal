@@ -9,11 +9,16 @@ fn ssh_args() -> Vec<String> {
     let _ = std::fs::create_dir_all(&socket_dir);
     let control_path = socket_dir.join("%r@%h:%p");
     vec![
-        "-o".into(), "ServerAliveInterval=5".into(),
-        "-o".into(), "ServerAliveCountMax=3".into(),
-        "-o".into(), format!("ControlPath={}", control_path.display()),
-        "-o".into(), "ControlMaster=auto".into(),
-        "-o".into(), "ControlPersist=300".into(),
+        "-o".into(),
+        "ServerAliveInterval=5".into(),
+        "-o".into(),
+        "ServerAliveCountMax=3".into(),
+        "-o".into(),
+        format!("ControlPath={}", control_path.display()),
+        "-o".into(),
+        "ControlMaster=auto".into(),
+        "-o".into(),
+        "ControlPersist=300".into(),
     ]
 }
 
@@ -87,7 +92,9 @@ fn main() {
             if args.len() < 4 {
                 eprintln!("Usage: entrouter scp <local-file> <user@host>:<remote-path>");
                 eprintln!("  Transfers a local file to a remote host via SSH.");
-                eprintln!("  Example: entrouter scp config.json root@your-vps:/etc/myapp/config.json");
+                eprintln!(
+                    "  Example: entrouter scp config.json root@your-vps:/etc/myapp/config.json"
+                );
                 std::process::exit(1);
             }
             let local_file = &args[2];
